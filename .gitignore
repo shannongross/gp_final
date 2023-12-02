@@ -1,0 +1,9 @@
+_old/
+*.html
+.Rhistory
+.RData
+output/
+input/processed/
+df_main_20231102.csv
+df_main_20231115.csv
+df_main_20231116_QC.csv

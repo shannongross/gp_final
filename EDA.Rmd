@@ -1,0 +1,50 @@
+---
+title: "Data Exploration"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, echo = FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This document contains figures of all candidate metrics under consideration for the NESE beta method development. Summary figures are provided here to visually review any data anomalies prior to modeling. 
+
+
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+suppressMessages(library(readxl))
+library(tidyverse, quietly = TRUE)
+suppressMessages(library(rstudioapi))
+this_script_path <- rstudioapi::getActiveDocumentContext()$path 
+setwd(dirname(this_script_path))
+HOME_DIR <- getwd()
+
+metrics_lookup <- read_xlsx("input/raw/metrics_dictionary.xlsx",
+                            sheet = "DATA_DICT") %>%
+  filter(MetricSubtype!="Direct") %>%
+  filter(GP_final!="FALSE") %>%
+  select("Metric","MetricType",
+         # "MetricSubtype",
+         "GP_final")
+
+current_metrics <- metrics_lookup[!duplicated(metrics_lookup), ]
+
+candidate_list <- current_metrics$Metric
+
+knitr::kable(metrics_lookup)
+```
+
+
+
+```{r, echo = FALSE, out.width="100%"}
+suppressMessages(library(rmarkdown))
+suppressMessages(library(knitr))
+
+myimages <- list.files("output/eda/metrics/", pattern = "metric_", full.names = TRUE)
+
+
+include_graphics(myimages)
+```
+
