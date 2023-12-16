@@ -15,6 +15,7 @@ library(ggplot2)
 library(rsample)
 library(readxl)
 library(tidyr)
+library(reshape2)
 
 # Set your working directory relative to this script
 this_script_path <- rstudioapi::getActiveDocumentContext()$path 
@@ -31,18 +32,18 @@ if (!dir.exists(models_dir)){dir.create(models_dir)}
 # case_list: which models to run. Uncomment ones you want to run.
 ################################################################################
 # name of directory to store these results
-model_version <- "DraftFinalModels"
+model_version <- "DraftFinalModels2"
 
 # how many trees
 numOfTrees <- 1500 
 
 # models to run
 case_list <- c(
-  "BaseModel_Unstrat", #for reference only
+  # "BaseModel_Unstrat" #for reference only
   "BaseModel_S",       #for reference only
   "BaseModel_UNC",      #for reference only
 
-  "NoGIS_Unstrat",   #also, 2BMI limit?
+  "NoGIS_Unstrat",   #also, 2BMI limit? #more of a reference
   "NoGIS_S",         #also, 2BMI limit?
   "NoGIS_UNC",       #also, 2BMI limit?
 
@@ -72,41 +73,47 @@ print(paste("candidates_failed_screen", candidates_failed_screen))
 # use data dictionary to subset data into lists
 metrics_lookup <- read_xlsx("input/raw/metrics_dictionary.xlsx",
                             sheet = "DATA_DICT") %>%
-  filter(MetricSubtype!="Direct") %>%
-  filter(GP_final=="TRUE") %>%
-  filter(MetricCandidate_KF=="TRUE")
-metrics_lookup <- metrics_lookup[!duplicated(metrics_lookup), ]
+    filter(MetricSubtype!="Direct") %>%
+    filter(MetricCandidate_KF=="TRUE")
+gp_bm_metrics <- (metrics_lookup %>% filter(BaseModel_Unstrat=="TRUE"))$Metric
+sgp_bm_metrics <- (metrics_lookup %>% filter(BaseModel_S=="TRUE"))$Metric
+ngp_bm_metrics <- (metrics_lookup %>% filter(BaseModel_UNC=="TRUE"))$Metric
 
-candidate_list <- metrics_lookup$Metric
+gp_nogis_metrics <- (metrics_lookup %>% filter(NoGIS_Unstrat=="TRUE"))$Metric
+sgp_nogis_metrics <- (metrics_lookup %>% filter(NoGIS_S=="TRUE"))$Metric
+ngp_nogis_metrics <- (metrics_lookup %>% filter(NoGIS_UNC=="TRUE"))$Metric
 
-#add strata if missing
-candidate_list <- unique(c(candidate_list, "Strata"))
-
+# candidate_list <- metrics_lookup$Metric
 metrics_gis_list <- (metrics_lookup %>% filter(MetricType =="Geospatial"))$Metric
 
-## ONLY ALLOW 2 FROM THIS LIST (TO DO)
+## ONLY ALLOW 2 FROM THIS LIST (TO DO) - ONLY IF THEY ARE DOMINATING
+# TODO: dont constrain by the ephemeral ones
 
-# Peren candidates for strat models
-subregion_peren_list <- c('ephemeral_ISAsubregion_abundance',
-                         'ephemeral_ISAsubregion_taxa',
-                         'ephinteph_ISAsubregion_abundance',
-                         'ephinteph_ISAsubregion_taxa',
-                         'perennial_ISAsubregion_abundance',
-                         'perennial_ISAsubregion_taxa',
-                         'perintper_ISAsubregion_abundance',
-                         'perintper_ISAsubregion_taxa'
-                         )
-# Peren candidates for unstrat model
-region_peren_list <- c('perennial_ISA_abundance',
-                        'perintper_ISA_abundance',
-                        'perennial_ISA_taxa',
-                        'perintper_ISA_taxa',
-                        'ephemeral_ISA_abundance',
-                        'ephemeral_ISA_taxa',
-                        'ephinteph_ISA_abundance',
-                        'ephinteph_ISA_taxa'
-                       )
-all_peren_list <- c(subregion_peren_list,region_peren_list)
+# # Peren candidates for strat models
+# subregion_peren_list <- c('ephemeral_ISAsubregion_abundance',
+#                          'ephemeral_ISAsubregion_taxa',
+#                          'ephinteph_ISAsubregion_abundance',
+#                          'ephinteph_ISAsubregion_taxa',
+#                          'perennial_ISAsubregion_abundance',
+#                          'perennial_ISAsubregion_taxa',
+#                          'perintper_ISAsubregion_abundance',
+#                          'perintper_ISAsubregion_taxa'
+# )
+# 
+# # Peren candidates for unstrat model
+# region_peren_list <- c('perennial_ISA_abundance',
+#                         'perintper_ISA_abundance',
+#                         'perennial_ISA_taxa',
+#                         'perintper_ISA_taxa',
+#                         'perennial_NC_abundance',
+#                         'perennial_NC_live_abundance',
+#                         'perennial_NC_taxa',
+#                         'ephemeral_ISA_abundance',
+#                         'ephemeral_ISA_taxa',
+#                         'ephinteph_ISA_abundance',
+#                         'ephinteph_ISA_taxa'
+#                        )
+# all_peren_list <- c(subregion_peren_list,region_peren_list)
 ################################ GET MODEL DATA ################################
 # Stored in csv file
 #
@@ -118,7 +125,7 @@ df_input <- read_csv(paste0(HOME_DIR,"/input/processed/df_model_aug.csv"))
 df_input$Class <- as.factor(df_input$Class)
 df_input$Region <- as.factor(df_input$Region)
 df_input$Region_detail <- as.factor(df_input$Region_detail)
-df_input$HydricSoils_score <- as.numeric(df_input$HydricSoils_score)
+# df_input$HydricSoils_score <- as.numeric(df_input$HydricSoils_score)
 
 # Create Strata column
 df_input <- df_input %>% mutate( Strata = Region_detail)
@@ -153,6 +160,10 @@ modelsdir <- paste0(models_dir, model_version)
 if (!dir.exists(modelsdir)){dir.create(modelsdir)}
 
 make_models <- function (case, numTrees) {
+  # case <- "BaseModel_Unstrat"
+  # numTrees <- 150
+  
+  start_time <- Sys.time()
   debug_dir <- paste0(modelsdir, "/", case, "/debug")
   if (!dir.exists(debug_dir)){dir.create(debug_dir)}
   
@@ -177,67 +188,52 @@ make_models <- function (case, numTrees) {
   
   # Config model cases
   if(case == "BaseModel_Unstrat"){
+    # Tracking eligible but failed screening
+    eligible_but_failed <- intersect(gp_bm_metrics, candidates_failed_screen)
+    
     # All eligible candidates
-    eligible <- setdiff(candidate_list, candidates_failed_screen)
-    
-    # Remove subregional BMI/peren candidates
-    eligible <- setdiff(eligible, subregion_peren_list)
-    
-    candidate_preds <- eligible
+    candidate_preds <- setdiff(gp_bm_metrics, candidates_failed_screen)
     
     df_MODEL <- df_aug_train
     df_TEST <- df_test
     is_strat <- "Unstrat"
-    topGIS <- ""
-    topBMI <- ""
+    topGIS <- "All GIS included"
   }
 
   else if(case == "BaseModel_S"){
+    # Tracking eligible but failed screening
+    eligible_but_failed <- intersect(sgp_bm_metrics, candidates_failed_screen)
+    
     # All eligible candidates
-    eligible <- setdiff(candidate_list, candidates_failed_screen)
+    candidate_preds <- setdiff(sgp_bm_metrics, candidates_failed_screen)
     
-    # Remove regional BMI/peren candidates
-    eligible <- setdiff(eligible, region_peren_list)
-    
-    candidate_preds <- eligible
     df_MODEL <- df_aug_train[df_aug_train$Region_detail %in% c('GP_S'),]
     df_TEST <- df_test[df_test$Region_detail %in% c('GP_S'),]
     is_strat <- "Strat"
-    topGIS <- ""
-    topBMI <- ""
+    topGIS <- "All GIS included"
   }
   else if(case == "BaseModel_UNC"){ 
+    # Tracking eligible but failed screening
+    eligible_but_failed <- intersect(ngp_bm_metrics, candidates_failed_screen)
+    
     # All eligible candidates
-    eligible <- setdiff(candidate_list, candidates_failed_screen)
-    
-    # Remove regional BMI/peren candidates
-    eligible <- setdiff(eligible, region_peren_list)
-    
-    # Remove candidates only intended for the south
-    eligible <- setdiff(eligible, c("perintper_ISAsubregion_abundance",
-                                    "perintper_ISAsubregion_taxa"))
+    candidate_preds <- setdiff(ngp_bm_metrics, candidates_failed_screen)
     
     df_MODEL <- df_aug_train[df_aug_train$Region_detail %in% 
                                c('GP_U','GP_N','GP_C'),]
     df_TEST <- df_test[df_test$Region_detail %in% 
                          c('GP_U','GP_N','GP_C'),]
     is_strat <- "Strat"
-    topGIS <- ""
-    topBMI <- ""
+    topGIS <- "All GIS included"
   }
 
   
   else if(case == "NoGIS_Unstrat"){
+    # Tracking eligible but failed screening
+    eligible_but_failed <- intersect(gp_nogis_metrics, candidates_failed_screen)
+    
     # All eligible candidates
-    eligible <- setdiff(candidate_list, candidates_failed_screen)
-    
-    # Remove GIS candidates
-    eligible <- setdiff(eligible, metrics_gis_list)
-    
-    # Remove subregional BMI/peren candidates
-    eligible <- setdiff(eligible, subregion_peren_list)
-    
-    candidate_preds <- eligible
+    candidate_preds <- setdiff(gp_nogis_metrics, candidates_failed_screen)
      
     print("all the candidate preds:")
     print(candidate_preds)
@@ -248,16 +244,11 @@ make_models <- function (case, numTrees) {
     
   }
   else if(case == "NoGIS_S"){
+    # Tracking eligible but failed screening
+    eligible_but_failed <- intersect(sgp_nogis_metrics, candidates_failed_screen)
+    
     # All eligible candidates
-    eligible <- setdiff(candidate_list, candidates_failed_screen)
-    
-    # Remove GIS candidates
-    eligible <- setdiff(eligible, metrics_gis_list)
-    
-    # Remove regional BMI/peren candidates
-    eligible <- setdiff(eligible, region_peren_list)
-    
-    candidate_preds <- eligible
+    candidate_preds <- setdiff(sgp_nogis_metrics, candidates_failed_screen)
     
     print("all the candidate preds:")
     print(candidate_preds)
@@ -266,45 +257,16 @@ make_models <- function (case, numTrees) {
     df_TEST <- df_test[df_test$Region_detail %in% 
                          c('GP_S'),]
     is_strat <- "Strat"
+    topGIS <- "NA- No GIS allowed."
     
   }
   else if(case == "NoGIS_UNC"){
+    # Tracking eligible but failed screening
+    eligible_but_failed <- intersect(ngp_nogis_metrics, candidates_failed_screen)
+    
     # All eligible candidates
-    eligible <- setdiff(candidate_list, candidates_failed_screen)
+    candidate_preds <- setdiff(ngp_nogis_metrics, candidates_failed_screen)
     
-    # Remove GIS candidates
-    eligible <- setdiff(eligible, metrics_gis_list)
-    
-    # Remove regional BMI/peren candidates
-    eligible <- setdiff(eligible, region_peren_list)
-    
-    # Remove candidates only intended for the south
-    eligible <- setdiff(eligible, c("perintper_ISAsubregion_abundance",
-                                    "perintper_ISAsubregion_taxa"))
-    
-    
-    # # Remove BMI candidates (only 2 allowed)
-    # eligible_noBMI <- setdiff(eligible, metrics_bmi_list )
-    # 
-    # ## Eligible candidates that are also BMI
-    # preds_allCandidates_BMI <- intersect(eligible, metrics_bmi_list)
-    # 
-    # # Restore the full model (all GIS and BMI allowed)
-    # base_model_candidates <- readRDS(paste0(modelsdir, "/BaseModel_UNC/debug/RF_initial_BaseModel_UNC.rds"))
-    # 
-    # base_model_candidates <- as.data.frame(base_model_candidates$importance)
-    # base_model_candidates_bmi <- base_model_candidates %>% 
-    #   filter(row.names(base_model_candidates) 
-    #          %in% c(preds_allCandidates_BMI)) 
-    # 
-    # # Get the top 2 BMI metrics
-    # base_model_candidates_bmi <- base_model_candidates_bmi[order(MeanDecreaseAccuracy,MeanDecreaseGini),]
-    # topBMI <- rownames(base_model_candidates_bmi[1:2,])
-    # print(paste("top 2 BMI:", topBMI))
-    # 
-    # # Add back in top 2 performing BMI
-    # candidate_preds <- c(eligible_noBMI, topBMI)
-    candidate_preds <- eligible
     
     print("all the candidate preds:")
     print(candidate_preds)
@@ -313,19 +275,20 @@ make_models <- function (case, numTrees) {
     df_TEST <- df_test[df_test$Region_detail %in% 
                          c('GP_U','GP_N','GP_C'),]
     is_strat <- "Strat"
+    topGIS <- "NA- No GIS allowed."
     
   }
   else if(case == "2GIS_Unstrat"){
-    # All eligible candidates
-    eligible <- setdiff(candidate_list, candidates_failed_screen)
+    # Tracking eligible but failed screening
+    eligible_but_failed <- intersect(gp_bm_metrics, candidates_failed_screen)
     
-    # Remove subregional BMI/peren candidates
-    eligible <- setdiff(eligible, subregion_peren_list)
+    # All eligible candidates
+    eligible <- setdiff(gp_bm_metrics, candidates_failed_screen)
     
     # Remove GIS candidates
     eligibleNoGIS <- setdiff(eligible, metrics_gis_list)
-
-    ## Eligible candidates that are also GIS
+    
+    # Eligible candidates that are also GIS
     preds_allCandidates_GIS <- intersect(eligible, metrics_gis_list)
     
     # Restore the full model (all GIS allowed)
@@ -350,20 +313,39 @@ make_models <- function (case, numTrees) {
     
   }
   else if(case == "2GIS_UNC"){
-    # All eligible candidates
-    eligible <- setdiff(candidate_list, candidates_failed_screen)
+    # # All eligible candidates
+    # eligible <- setdiff(candidate_list, candidates_failed_screen)
+    # 
+    # # Remove regional BMI/peren candidates
+    # eligible <- setdiff(eligible, region_peren_list)
+    # 
+    # # Remove GIS candidates
+    # eligibleNoGIS <- setdiff(eligible, metrics_gis_list)
+    # 
+    # # Remove candidates only intended for the south
+    # eligible <- setdiff(eligible, c("perintper_ISAsubregion_abundance",
+    #                                 "perintper_ISAsubregion_taxa"))
+    # 
+    # #Tracking eligible but failed screening
+    # eligible_but_failed <- intersect(
+    #   setdiff(setdiff(setdiff(candidate_list, region_peren_list),
+    #                   c("perintper_ISAsubregion_abundance",
+    #                     "perintper_ISAsubregion_taxa")), metrics_gis_list),
+    #   candidates_failed_screen)
+    # 
+    # ## Eligible candidates that are also GIS
+    # preds_allCandidates_GIS <- intersect(eligible, metrics_gis_list)
     
-    # Remove regional BMI/peren candidates
-    eligible <- setdiff(eligible, region_peren_list)
+    # Tracking eligible but failed screening
+    eligible_but_failed <- intersect(ngp_bm_metrics, candidates_failed_screen)
+    
+    # All eligible candidates
+    eligible <- setdiff(ngp_bm_metrics, candidates_failed_screen)
     
     # Remove GIS candidates
     eligibleNoGIS <- setdiff(eligible, metrics_gis_list)
     
-    # Remove candidates only intended for the south
-    eligible <- setdiff(eligible, c("perintper_ISAsubregion_abundance",
-                                    "perintper_ISAsubregion_taxa"))
-    
-    ## Eligible candidates that are also GIS
+    # Eligible candidates that are also GIS
     preds_allCandidates_GIS <- intersect(eligible, metrics_gis_list)
     
     # Restore the full model (all GIS and BMI allowed)
@@ -374,8 +356,11 @@ make_models <- function (case, numTrees) {
              %in% c(preds_allCandidates_GIS))
     
     # Get the top 2 GIS metrics
-    topGIS <- rownames(base_model_candidates_gis[1:2,])
+    topGIS <- rownames(base_model_candidates_gis[1:2,]) #put explicty ordering back in
     print(paste("top 2 GIS:", topGIS))
+    
+    # Add back in top 2 performing GIS
+    candidate_preds <- c(eligibleNoGIS, topGIS)
     
     print("all the candidate preds:")
     print(candidate_preds)
@@ -387,16 +372,33 @@ make_models <- function (case, numTrees) {
   }
   
   else if(case == "2GIS_S"){
-    # All eligible candidates
-    eligible <- setdiff(candidate_list, candidates_failed_screen)
+    # # All eligible candidates
+    # eligible <- setdiff(candidate_list, candidates_failed_screen)
+    # 
+    # # Remove regional BMI/peren candidates
+    # eligible <- setdiff(eligible, region_peren_list)
+    # 
+    # # Remove GIS candidates
+    # eligibleNoGIS <- setdiff(eligible, metrics_gis_list)
+    # 
+    # ## Eligible candidates that are also GIS
+    # preds_allCandidates_GIS <- intersect(eligible, metrics_gis_list)
+    # 
+    # #Tracking eligible but failed screening
+    # eligible_but_failed <- intersect(
+    #   setdiff(setdiff(candidate_list, region_peren_list), metrics_gis_list),
+    #   candidates_failed_screen)
     
-    # Remove regional BMI/peren candidates
-    eligible <- setdiff(eligible, region_peren_list)
+    # Tracking eligible but failed screening
+    eligible_but_failed <- intersect(sgp_bm_metrics, candidates_failed_screen)
+    
+    # All eligible candidates
+    eligible <- setdiff(sgp_bm_metrics, candidates_failed_screen)
     
     # Remove GIS candidates
     eligibleNoGIS <- setdiff(eligible, metrics_gis_list)
     
-    ## Eligible candidates that are also GIS
+    # Eligible candidates that are also GIS
     preds_allCandidates_GIS <- intersect(eligible, metrics_gis_list)
     
     # Restore the full model (all GIS and BMI allowed)
@@ -409,6 +411,9 @@ make_models <- function (case, numTrees) {
     # Get the top 2 GIS metrics
     topGIS <- rownames(base_model_candidates_gis[1:2,])
     print(paste("top 2 GIS:", topGIS))
+    
+    # Add back in top 2 performing GIS
+    candidate_preds <- c(eligibleNoGIS, topGIS)
     
     print("all the candidate preds:")
     print(candidate_preds)
@@ -436,16 +441,19 @@ make_models <- function (case, numTrees) {
     ## Get optimal features w backwards feature selection
     len_predictors <- length(candidate_preds)
     print(paste(case, "len_predictors",len_predictors))
+    
+    cat(paste("(Eligible but failed screening: ", eligible_but_failed, ")"), 
+        file=log_con, append = TRUE, sep="\n")
     cat(paste("Starting with: ", len_predictors, " candidate predictors"), 
         file=log_con, append = TRUE, sep="\n")
     cat(paste("Possible predictors: ", sort(candidate_preds)), 
         file=log_con, append = TRUE, sep="\n")
     
     cat(paste("topGIS: ", topGIS), file=log_con, append = TRUE, sep="\n")
-    cat(paste("topBMI: ", topBMI), file=log_con, append = TRUE, sep="\n")
-    
+
     ############################### MAKE RF INITIAL############################# 
-    set.seed(88)
+    # set.seed(88)
+    set.seed(3)
     RF_initial <- randomForest(x=X_train,
                        y=y_train,
                        ntree=numTrees,
@@ -458,14 +466,13 @@ make_models <- function (case, numTrees) {
     saveRDS(RF_initial, file = paste0(debug_dir, "/", rdata_obj))
     ############################################################################
     
-    set.seed(999)
+    # set.seed(999)
+    set.seed(4)
     RFE_obj <- rfe(
       y=y_train,
       x=X_train,
-      # sizes=c(5:20, seq(from=25, to=len_predictors, length.out = 10),
-      sizes=c(10:20, seq(from=25, to=len_predictors),#, length.out = 10),
+      sizes=c(10:20, seq(from=25, to=len_predictors, length.out = 10), ##SMG: check length.out=5
               len_predictors) %>% unique() %>% round(),
-      # sizes=c(1,5,10), #For quicker testing
       rfeControl = rfeControl(functions = rfFuncs,
                               method = "cv",
                               verbose = TRUE,
@@ -497,7 +504,8 @@ make_models <- function (case, numTrees) {
         file=log_con, append = TRUE, sep="\n")
     
     # Make RF
-    set.seed(1111)
+    # set.seed(1111)
+    set.seed(5)
     RF <- randomForest(x=X_train[opt_preds],
                        y=y_train,
                        ntree=numTrees,
@@ -516,7 +524,7 @@ make_models <- function (case, numTrees) {
         bind_cols(
           predict(RF, type="prob") %>% 
           as_tibble() #Generate the prediction probabilities and bind to the first column
-        )
+        ) #check bind cols
     
     
     pred <- predict(RF, newdata = X_test[opt_preds])
@@ -526,14 +534,14 @@ make_models <- function (case, numTrees) {
           "SiteCode","Wet", "BankWidthMean",
           "VisitNo","Dataset","Region_detail",
           "Notes","TotalVisits", "revist",candidate_preds))]) %>%
-        add_column(Stratification=is_strat,pred) %>%
+        add_column(Stratification=is_strat, pred) %>%
         rename(RF_Prediction_Majority="pred") %>%
         bind_cols(
           predict(RF, 
                 newdata=X_test[opt_preds], #Generate predictions
                 type="prob") %>%
           as_tibble() 
-    ) 
+    ) ##make sure that df_TEST and X_test are perfectly aligned when using bind cols
     
     # Combine train and test dataframes, reclassify according to 50% probability
     comb_results <- rbind(train_results, test_results)
@@ -562,6 +570,8 @@ make_models <- function (case, numTrees) {
             Class %in% c("E") & !Wet & RF_Prediction_50 %in% c("E")~T,
             Class %in% c("I") & !Wet & RF_Prediction_50 %in% c("I")~T,
             T~F),
+        ##add PvLTP
+      
         ModName=paste0(model_version,"_",case)
         )
     write_csv(comb_results, file=paste0(fpath,"/combined_results.csv"))
@@ -587,13 +597,22 @@ make_models <- function (case, numTrees) {
     results_conf_mat3 <- spread(results_conf_mat2, key = RF_Prediction_50, value = n)
     results_conf_mat3 <- results_conf_mat3 %>% arrange(Dataset)
     possible <- unique(results_conf_mat2$RF_Prediction_50)
-    results_conf_mat3$RowSums <- rowSums(
-    results_conf_mat3[,c(possible)], na.rm=TRUE)
+    # results_conf_mat3$RowSums <- rowSums(
+    # results_conf_mat3[,c(possible)], na.rm=TRUE)
     colsums <- colSums( results_conf_mat3[,c(possible)], na.rm=TRUE)
     results_conf_mat3[is.na(results_conf_mat3)] <- 0
     write_csv(rbind(results_conf_mat3, colsums), 
-              file=paste0(fpath,"/confusion_matrix.csv"))
+              file=paste0(debug_dir,"/old_confusion_matrix.csv"))
     
+    melted <- melt(results_conf_mat3)
+    cm_pivot_table <- melted %>%
+        pivot_wider(
+          names_from = c(ActualClass, Dataset),
+          values_from = value
+        ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI', 'P', 'LTP', 'NMI')))
+    
+    write_csv(cm_pivot_table, file=paste0(fpath,"/confusion_matrix.csv"))
+
 
     ## Plot importance of chosen variables
     varimp <- varImpPlot(RF, 
@@ -649,13 +668,13 @@ make_models <- function (case, numTrees) {
            caption=paste0("(",case,
                           ")\n Number of Samples: ", dim(comb_results1)[1], 
                           "\n Number of Sites: ", 
-                          length(unique(comb_results1$SiteCode))[1]) )  +
-      scale_fill_manual(values=c("#07b52a", #ALI
-                                 "#eb344f", #E
-                                 "#edea1f", #I
-                                 "#e09c09", #LTP
-                                 "#4764e6", #P
-                                 "grey"))   #nmi
+                          length(unique(comb_results1$SiteCode))[1]) ) # +
+      # scale_fill_manual(values=c("#07b52a", #ALI
+      #                            "#eb344f", #E
+      #                            "#edea1f", #I
+      #                            "#e09c09", #LTP
+      #                            "#4764e6", #P
+      #                            "grey"))   #nmi
     
     plot_summary_test <- ggplot(comb_results2, aes(Class, fill=RF_Prediction_50)) + 
       geom_bar() +
@@ -663,21 +682,24 @@ make_models <- function (case, numTrees) {
            caption=paste0("(",case,
                           ")\n Number of Samples: ", dim(comb_results2)[1], 
                           "\n Number of Sites: ", 
-                          length(unique(comb_results2$SiteCode))[1]) ) +
-      scale_fill_manual(values=c("#07b52a", #ALI
-                                 "#eb344f", #E
-                                 "#edea1f", #I
-                                 "#e09c09", #LTP
-                                 "#4764e6", #P
-                                 "grey"))   #nmi
+                          length(unique(comb_results2$SiteCode))[1]) ) #+
+      # scale_fill_manual(values=c("#07b52a", #ALI
+      #                            "#eb344f", #E
+      #                            "#edea1f", #I
+      #                            "#e09c09", #LTP
+      #                            "#4764e6", #P
+      #                            "grey"))   #nmi
 
     ggsave(paste0(debug_dir, "/", case,"_plot_summary.png"), 
                  arrangeGrob(plot_summary_train,
                              plot_summary_test,
                              nrow = 1, top= case),
                  dpi=300, height=4, width=8)
-
+  end_time <- Sys.time()
+  run_time <- end_time - start_time
   print(paste0("******* FINISHED CASE: ", case, "*******"))
+  cat(run_time)
+  print(run_time)
 }
 
 ############################### RUN RANDOM FORESTS #############################

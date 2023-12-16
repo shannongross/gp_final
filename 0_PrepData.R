@@ -47,27 +47,25 @@ info_list <- c("ParentGlobalID","CollectionDate","Region",
 
 ################################################################################
 # Fetch the input datasets
-#   - metrics_lookup: list of all metrics and their subtypes 
+#   - gp_metrics_list: list of all metrics and their subtypes 
 #   - df_crosswalk: contains SiteCode, actual Class, and region/subregions
-#   - df_gis: for each SiteCode, contains the precip, temp, elev, snow 
 #   - df_main: all features collected (need to add site visit number)
-#   - ai_metrics: aquatic inverts
+#
 ################################################################################
 
 ################################################################################
 # METRICS LOOKUP
 # 
 ################################################################################
-metrics_lookup <- read_xlsx("input/raw/metrics_dictionary.xlsx",
-                            sheet = "DATA_DICT") %>%
+gp_metrics_list <- read_xlsx("input/raw/metrics_dictionary.xlsx",
+                             sheet = "DATA_DICT") %>%
   filter(MetricSubtype!="Direct") %>%
-  filter(GP_final!="FALSE") %>%
+  # filter(GP_final=="TRUE") %>%
+  filter(GP_final=="TRUE"|NGP=="TRUE"|SGP=="TRUE") %>%
   filter(MetricCandidate_KF=="TRUE")
 
-# select("MetricType","MetricSubtype","Metric","GP_final") 
-current_metrics <- metrics_lookup[!duplicated(metrics_lookup), ]
+candidate_list <- gp_metrics_list$Metric
 
-candidate_list <- current_metrics$Metric
 print(paste0("There are ", 
              length(candidate_list), 
              " candidate metrics for the ", 
@@ -78,7 +76,6 @@ print(paste0("There are ",
 # 286 sites. 72 ephemeral.
 ################################################################################
 df_crosswalk <- read_csv("input/raw/xwalk_df.csv") %>%
-# df_crosswalk <- read_csv("input/raw/master_site_class_xwalk_092123.csv") %>%
   filter(Region %in% c(CURRENT_REGION))  %>%
   rename(SiteCode=sitecode)
 print(paste("df_crosswalk contains:", 
@@ -109,7 +106,7 @@ if (save_plots==TRUE){ggsave(plot_sites_crosswalk,
 
 ################################################################################
 # MAIN
-# Remove ai from main (use ai_metrics.csv instead)
+# 
 ################################################################################
 df_main <- read_csv("input/raw/df_main_20231116.csv") %>%
   filter(SiteCode %in% (unique(df_crosswalk$SiteCode)))%>% 
@@ -125,6 +122,7 @@ print(paste("This site is in df_crosswalk but not in df_main:", setdiff(df_cross
 
 # combine datasets
 df_main_new <- left_join(df_main, df_crosswalk, by="SiteCode") 
+
 # Check that everything looks good so far
 print(df_main_new %>% count(Class))
 print(nrow(df_main_new))
@@ -140,8 +138,6 @@ print(df_main_new %>% count(Class))
 print(nrow(df_main_new))
 
 print(df_main_new %>% count(Sinuosity_score))
-# df_main_new %>% select(ParentGlobalID, Sinuosity_score) %>% 
-#   filter(Sinuosity_score %in% c(0.5, 2.5))
 
 # How many sites are there in the current region?
 print(paste0("The ", CURRENT_REGION,
@@ -155,7 +151,7 @@ print(paste0("The ", CURRENT_REGION,
 ################################ FIX MISTAKES IN DB ############################
 # The original file df_main contains some errors (half and quarter scores where
 # there should be none). The file db_fixes.xlsx contains corrected values that 
-# will be used  to overwrite then erroneous values
+# will be usedto overwrite the erroneous values
 ################################################################################
 df_fixes <- read_excel("input/raw/db_fixes.xlsx", sheet="Query Aug19")
 df_fixes <- df_fixes[,c("ParentGlobalID","SiteCode","Sinuosity_score",
@@ -300,69 +296,15 @@ df_main_new <- df_main_new %>%
 df_main_new %>%
   filter(ParentGlobalID=="c4a6c40d-c765-4742-8e65-6e767dd0f831") %>%  
   select(ParentGlobalID, WaterInChannel_score, Wet)
-############################## CREATE MISSING METRICS ##########################
-# The original file df_main is missing some metrics. Create them here.
-#
-################################################################################
-# df_main_new <- df_main_new %>% 
-#     mutate(
-      # BMI_score = case_when(
-      #     TotalAbundance >= 10 & Richness>=3 & TolRelAbund<0.9  ~3,
-      #     Richness >= 5 & TolRelAbund<0.9~3,  
-      #     TotalAbundance>=4 & TolRelAbund<0.9 ~2,   
-      #     TotalAbundance>0~1, 
-      #     T~0), 
-      # #BMI_score_alt1: Same as original but with alt tolerance metric
-      # BMI_score_alt1 = case_when(
-      #     TotalAbundance >= 10 & Richness>=3 & TolRelAbundAlt<0.9  ~3,  
-      #     Richness >= 5 & TolRelAbundAlt<0.9~3,  
-      #     TotalAbundance>=4 & TolRelAbundAlt<0.9 ~2,   
-      #     TotalAbundance>0~1, 
-      #     T~0), 
-      # #BMI_score_alt2: Brian Topping's alternative approach
-      # BMI_score_alt2 = case_when(
-      #     #Strong
-      #     TotalAbundance >= 10 & NonTolTaxa>=3  ~3,  
-      #     NonTolTaxa >= 5 ~3,  
-      #     #Medium
-      #     TotalAbundance>=4 & NonTolTaxa >=2  ~2,   
-      #     #Weak
-      #     NonTolTaxa > 0~1,
-      #     NonTolTaxa ==0 & TolTaxa >0 ~1, 
-      #     #Absent
-      #     T~0), 
-      # #BMI_score_alt3: Brian Topping's alternative approach, alt tolerance
-      # BMI_score_alt3 = case_when(
-      #     #Strong
-      #     TotalAbundance >= 10 & NonTolTaxaAlt>=3  ~3,  
-      #     NonTolTaxa >= 5 ~3,  
-      #     #Medium
-      #     TotalAbundance>=4 & NonTolTaxaAlt >=2  ~2,   
-      #     #Weak
-      #     NonTolTaxaAlt > 0~1,
-      #     NonTolTaxaAlt ==0 & TolTaxaAlt >0 ~1, 
-      #     #Absent
-      #     T~0), 
-      #BMI_score_alt4: Original, but ignores tolerance entirely
-      # BMI_score_alt4 =  case_when(
-      #     TotalAbundance >= 10 & Richness>=3  ~3,
-      #     Richness >= 5~3,  
-      #     TotalAbundance>=4 ~2,   
-      #     TotalAbundance>0~1, 
-      #     T~0)
-      # )
 
-
-# Create Strata column
-df_main_new <- df_main_new %>% mutate( Strata = Region_detail)
 
 ################################################################################
 # Additional Data Cleaning
 #
 ################################################################################
-
-# Double check that these site codes are not present (site codes got updated)
-# They were moved from the GP to the WM/AW but sampled as part of the GP effor
+# Double check that these site codes are not present in the final GP dataset.
+# These site codes were updated (they were moved from the GP to the WM/AW) but
+# they were sampled as part of the GP effort.
 qc_badsites <- df_main_new %>% filter(SiteCode %in% c("NMCB33",
                                                    "NMCB34",
                                                    "NMCB35",
@@ -370,6 +312,9 @@ qc_badsites <- df_main_new %>% filter(SiteCode %in% c("NMCB33",
                                                    "NMSB118"))
 print(paste("There are no sites present that shouldn't be there:",
             nrow(qc_badsites)==0))
+
+# Create Strata column
+df_main_new <- df_main_new %>% mutate( Strata = Region_detail)
 
 # Keep only candidate metric columns
 print(paste("Number of candidate indicators:", length(candidate_list)))
@@ -388,8 +333,6 @@ print(nrow(df_input))
 df_input$Class <- as.factor(df_input$Class)
 df_input$Region <- as.factor(df_input$Region)
 df_input$Region_detail <- as.factor(df_input$Region_detail)
-#double check if/why i need to coerce that
-df_input$HydricSoils_score <- as.numeric(df_input$HydricSoils_score)
 
 # Cleanup date column # NOTE: had to manually change dtype in the input csv of 
 # this column in order for R to understand it correctly
@@ -401,7 +344,6 @@ df_input$month <- factor(df_input$month,
                                   "Apr", "May", "Jun",
                                   "Jul", "Aug", "Sep",
                                   "Oct", "Nov", "Dec"))
-
 ## Are there any NaNs?
 skim(df_input)
 
@@ -416,32 +358,20 @@ df_suspicous <- df_input %>%
     filter(
           (Sinuosity_score %in% c(0.5, 1.5, 2.5, 3.5)) |
           (ChannelDimensions_score_NM %in% c(0.75, 1.53, 1.75, 2.25)) |
-          (ChannelDimensions_score_NM >10000) |
+          (ChannelDimensions_score_NM > 10000) |
           (BankWidthMean > 1000) |
           (RifflePoolSeq_score %in% c(0.25, 0.75)) 
-          # (SubstrateSorting_score %in% c(0.25, 0.5, 1.25, 1.75, 2.25, 2.75, 3.5))
         ) %>%
     select(ParentGlobalID, 
           Sinuosity_score,
           ChannelDimensions_score_NM, 
           BankWidthMean,
           RifflePoolSeq_score
-          # SubstrateSorting_score
           )
 df_suspicous
 ## STORE SUSPICOUS ROWS FOR INVESTIGATION 
 if (save_spreadsheets==TRUE){write.csv(df_suspicous, 
                                  paste0(input_clean_dir,"/df_suspicous.csv"))}
-
-
-
-## DROP ANY ROW W A NaN 
-# print(paste("Number of rows:", nrow(df_input)))
-# df_input <- df_input %>% na.omit()
-# df_input <- df_input %>% drop_na()
-# print(paste("Number of rows after dropping nans:",nrow(df_input)))
-# 
-
 
 ## Make a column w total number of times a site was visited
 set.seed(1)
@@ -456,23 +386,105 @@ df_input <- df_input %>%
 ##Add state column
 df_input$State <- substr(df_input$SiteCode,1,2)
 
+# Get a list of all unique Site Codes to be used in Train/Test split 
+site_info <- unique(df_input %>% select(Class, SiteCode, Region, Region_detail))
+
+
+########################## TRAIN/TEST SPLIT INVESTIGATION ######################
+# QUESION: What is the effect of distributing by Class AND Strata vs just Class?
+#
+################################################################################
+set.seed(123)
+testing_sites_1 <- site_info %>% 
+    filter(Region=="GP") %>% 
+    group_by(Class) %>% 
+    slice_sample(prop = 0.2) 
+
+testing_sites_2 <- site_info %>% 
+    filter(Region=="GP") %>% 
+    group_by(Class, Region_detail) %>% 
+    slice_sample(prop = 0.2) 
+
+df_testing_sites_1 <-df_input %>% 
+    filter(SiteCode %in% testing_sites_1$SiteCode)%>%
+    select(SiteCode,Region_detail,Class)
+plot_testing_sites_1 <- ggplot(df_testing_sites_1, 
+    aes(x=Region_detail, fill=Class)) + 
+    geom_bar(stat='count') +
+    labs(title = "Distribute Test Sites by Class Only",
+         subtitle= "TESTING DATA",
+    y="Number of Test Samples",x="",
+    caption=paste0("(",CURRENT_REGION_DISPLAY,
+           ")\n Number of Test Samples: ", dim(df_testing_sites_1)[1], 
+           "\n Number of Test Sites: ", 
+           length(unique(df_testing_sites_1$SiteCode))[1]))
+print(plot_testing_sites_1)
+
+df_testing_sites_2 <-df_input %>% 
+    filter(SiteCode %in% testing_sites_2$SiteCode)%>%
+    select(SiteCode,Region_detail,Class)
+plot_testing_sites_2 <- ggplot(df_testing_sites_2, 
+                               aes(x=Region_detail, fill=Class)) + 
+    geom_bar(stat='count') +
+    labs(title = "Distribute Test Sites by Class and Subregion",
+         subtitle= "TESTING DATA",
+    y="Number of Test Samples",x="",
+    caption=paste0("(",CURRENT_REGION_DISPLAY,
+             ")\n Number of Test Samples: ", dim(df_testing_sites_2)[1], 
+             "\n Number of Test Sites: ", 
+             length(unique(df_testing_sites_2$SiteCode))[1]))
+print(plot_testing_sites_2)
+
+
+df_training_w_sites_1 <-df_input %>% 
+  filter(SiteCode %in% unique(setdiff(site_info$SiteCode, 
+                                      testing_sites_1$SiteCode))) %>%
+  select(SiteCode,Region_detail,Class)
+plot_training_w_sites_1 <- ggplot(df_training_w_sites_1, 
+                               aes(x=Region_detail, fill=Class)) + 
+  geom_bar(stat='count') +
+  labs(title = "Distribute Test Sites by Class Only",
+    subtitle= "TRAINING DATA",
+    y="Number of Training Samples",x="",
+    caption=paste0("(",CURRENT_REGION_DISPLAY,
+                   ")\n Number of Train Samples: ", dim(df_training_w_sites_1)[1], 
+                   "\n Number of Train Sites: ", 
+                   length(unique(df_training_w_sites_1$SiteCode))[1]))
+print(plot_training_w_sites_1)
+
+df_training_w_sites_2 <-df_input %>% 
+  filter(SiteCode %in% unique(setdiff(site_info$SiteCode, 
+                                      testing_sites_2$SiteCode))) %>%
+  select(SiteCode,Region_detail,Class)
+plot_training_w_sites_2 <- ggplot(df_training_w_sites_2, 
+                                  aes(x=Region_detail, fill=Class)) + 
+  geom_bar(stat='count') +
+  labs(title = "Distribute Test Sites by Class and Subregion",
+       subtitle= "TRAINING DATA",
+       y="Number of Training Samples",x="",
+       caption=paste0("(",CURRENT_REGION_DISPLAY,
+                      ")\n Number of Train Samples: ", dim(df_training_w_sites_2)[1], 
+                      "\n Number of Train Sites: ", 
+                      length(unique(df_training_w_sites_2$SiteCode))[1]))
+print(plot_training_w_sites_2)
+
+if (save_plots==TRUE){ggsave(paste0(eda_dir, "/compare_test_distribution.png"), 
+                             arrangeGrob(plot_testing_sites_1,
+                                         plot_testing_sites_2,
+                                         plot_training_w_sites_1,
+                                         plot_training_w_sites_2,
+                                         nrow = 2),
+                             dpi=300, height=10, width=10)}
+
+# Conclusion: appears slightly more balanced to split the train/test data
+# by both Class and Subregion
+
 
 ################################ TRAIN/TEST SPLIT ##############################
-# 
+# Split into training vs testing based on site codes,
+# but distribute them evenly by class and subregion
 ################################################################################
-# Get a list of all unique siteCodes 
-site_info <- unique(df_input %>% select(Class, SiteCode, Region, Region_detail))
-set.seed(123)
-
-## Split into training vs testing based on site codes,
-# but distribute them evenly by class and ?subregion? 
-testing_sites <- site_info %>% 
-  filter(Region=="GP") %>% 
-  # group_by(Class) %>%
-  group_by(Class, Region_detail) %>% #SMG: confirm this balance compared to previous
-  slice_sample(prop = 0.2) #SMG: double check why I used this
-
-testing_sites_list <- unique(testing_sites$SiteCode)
+testing_sites_list <- unique(testing_sites_2$SiteCode)
 training_sites_list <- setdiff(site_info$SiteCode, testing_sites_list) 
 print(paste("Out of the original",
             length(unique(site_info$SiteCode)),
@@ -645,27 +657,50 @@ if (save_plots==TRUE){ggsave(plot_all_sites_by_class,
 ################################################################################
 
 
-############################### MAP OF SITES ###################################
-# # install.packages(c("cowplot", "googleway", "ggplot2", "ggrepel",
-# #        "ggspatial", "libwgeom", "sf", "rnaturalearth", "rnaturalearthdata"))
-# 
-# library("ggplot2")
-# theme_set(theme_bw())
-# library("sf")
-# library("rnaturalearth")
-# library("rnaturalearthdata")
-# 
-# world <- ne_countries(scale = "medium", returnclass = "sf")
-# class(world)
-# 
-# ggplot(data = world) +
-#   geom_sf() +
-#   geom_point(data = df_crosswalk, aes(x = long, y = lat), size = 2, 
-#              # shape = 23, 
-#              fill = "black") +
-#   coord_sf(xlim = c(min(df_crosswalk$long)-3, max(df_crosswalk$long)+3),
-#            ylim = c(min(df_crosswalk$lat)-3, max(df_crosswalk$lat)+3), 
-#            expand = FALSE)
+############################## MAP OF SITES ###################################
+# install.packages(c("cowplot", "googleway", "ggplot2", "ggrepel",
+#        "ggspatial", "libwgeom", "sf", "rnaturalearth", "rnaturalearthdata"))
+if (save_spreadsheets==TRUE){write.csv(df_crosswalk, 
+                     paste0(input_clean_dir,"/df_crosswalk.csv"))}
+
+library("ggplot2")
+theme_set(theme_bw())
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library(usmap) #import the package
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+# subreg_shps <- read_sf(dsn = "input/raw/GreatPlainsRegions_V2")
+sub_shps <- read_sf(dsn = "input/raw/gp_subregions.geojson")
+
+gp_map <- ggplot(data =sub_shps, aes(fill=Zone))+
+  geom_sf() +
+  geom_point(data = df_crosswalk, aes(x = long, y = lat), size = 2,
+             fill = "black") +
+  coord_sf(xlim = c(min(df_crosswalk$long)-5, max(df_crosswalk$long)+5),
+        ylim = c(min(df_crosswalk$lat)-5, max(df_crosswalk$lat)+5)
+        ) 
+if (save_plots==TRUE){ggsave(gp_map, 
+         filename=paste0(eda_dir, "/gp_map.png"), 
+         dpi=500, height=9, width=9)}
+#+
+  # coord_sf(xlim = c(min(df_crosswalk$long)-5, max(df_crosswalk$long)+5),
+  #          ylim = c(min(df_crosswalk$lat)-5, max(df_crosswalk$lat)+5)
+  #          )
+
+
+ggplot(data = world) +
+  geom_sf() +
+  geom_point(data = df_crosswalk, aes(x = long, y = lat), size = 2,
+             # shape = 23,
+             fill = "black") +
+  coord_sf(xlim = c(min(df_crosswalk$long)-3, max(df_crosswalk$long)+3),
+           ylim = c(min(df_crosswalk$lat)-3, max(df_crosswalk$lat)+3),
+           expand = FALSE) 
+
 ################################################################################
 
 
@@ -679,10 +714,10 @@ plot_all_samples_by_region_class <- ggplot(df_model,
                      ")\n Number of Samples: ", dim(df_model)[1], 
                      "\n Number of Sites: ", 
                      length(unique(df_model$SiteCode))[1])) + 
-      scale_fill_manual(values=c("#bf5266", 
-                                  "#c78df7", 
-                                  "#f77b4a",
-                                  "#4fd7db"))
+      scale_fill_manual(values=c("#e34f4f", 
+                                  "#f7ec6d", 
+                                  "#55a6d9",
+                                  "#a6ed95"))
       # geom_text(stat="count", aes(label=after_stat(..count..)),
       #       vjust=-5, color="black", size=2.8)
       print(plot_all_samples_by_region_class)
@@ -764,7 +799,7 @@ plot_no_site_visits_notitle <- ggplot(df_model, aes(TotalVisits)) +
 print(plot_no_site_visits_notitle)
 
 plot_no_site_visits_title <- ggplot(df_model, aes(TotalVisits)) +
-      geom_bar(stat = "count") +
+      geom_bar(stat = "count",fill="cornflowerblue") +
       labs(title = paste0("Count of Total Site Visits"),
       subtitle = "(Full dataset, before oversampling)", 
       y="Count",x="",
@@ -777,7 +812,7 @@ plot_no_site_visits_title <- ggplot(df_model, aes(TotalVisits)) +
       # ylim(0,370) + 
       scale_x_continuous(breaks=c(1,2,3,4,5,6)) + 
       theme(legend.position = "none")
-      print(plot_no_site_visits_title)
+    print(plot_no_site_visits_title)
 
 if (save_plots==TRUE){ggsave(plot_no_site_visits_title, 
       filename=paste0(eda_dir, "/plot_no_site_visits_title.png"), 
@@ -940,6 +975,7 @@ if (save_plots==TRUE){ggsave(paste0(eda_dir, "/upsampled_training.png"),
                 ),
     dpi=300, height=4, width=12)}
 
+
 if (save_plots==TRUE){ggsave(paste0(eda_dir, "/upsampled_training_color.png"), 
      arrangeGrob(plot_train_dis_class,
                  plot_aug_dist_class, 
@@ -1013,14 +1049,67 @@ if (save_plots==TRUE){ggsave(plot_no_site_visits_test,
     filename=paste0(eda_dir, "/plot_no_site_visits_test.png"), 
     dpi=300, height=5, width=5)}
 
+plot_aug_dist_simple <- ggplot(df_aug_train, aes(TotalVisits)) +
+  geom_bar(stat = "count", fill="cornflowerblue") +
+  labs(#title = paste0(CURRENT_REGION_DISPLAY,
+    #  ": Count of Total Site Visits AUG TRAIN"),
+    subtitle = "(Training dataset, after oversampling)", 
+    y="",x="",
+    caption=paste0("Upsampled number of training samples: ", 
+                   dim(df_aug_train)[1])) +
+  geom_text(stat="count", aes(label=..count..),
+            vjust=1.3, color="white", size=4) +
+  ylim(0,800) +
+  scale_x_continuous(breaks=c(1,2,3,4,5,6))
+print(plot_aug_dist_simple)
 
-################################################################################
+plot_no_site_visits_test_simple <- ggplot(df_test, aes(TotalVisits)) + 
+  geom_bar(stat = "count", fill="cornflowerblue") +
+  labs(#title = "Number of Times Site Was Visited",
+    subtitle = "(Test set - withheld from method development)", 
+    y="",x="",
+    caption=paste0("Number of testing samples: ", dim(df_test)[1])) +
+  geom_text(stat="count", aes(label=..count..),
+            vjust=1.3, color="white", size=4) +
+  # geom_text(stat="count",
+  #           aes(label = scales::percent(..count../sum(..count..))),
+  #           vjust=-0.3, color="black", size=3) +
+  # geom_text(stat="count", aes(label=..count..),
+  #           vjust=1.3, color="white", size=4) +
+  ylim(0,800)
+if (save_plots==TRUE){ggsave(plot_no_site_visits_test_simple, 
+         filename=paste0(eda_dir, "/plot_no_site_visits_test_simple.png"), 
+         dpi=300, height=5, width=5)}
+
+
 if (save_plots==TRUE){ggsave(paste0(eda_dir, "/upsampling.png"), 
     arrangeGrob(plot_no_site_visits, 
                 plot_no_site_visits_aug, 
                 plot_no_site_visits_test, 
                 nrow = 1, top= (CURRENT_REGION_DISPLAY)),
     dpi=300, height=4, width=12)}
+
+plot_train_dis_simple <- ggplot(df_train, aes(TotalVisits)) +
+    geom_bar(fill="cornflowerblue", stat = "count") +
+    labs(#title = paste0(CURRENT_REGION_DISPLAY,
+      #        ": Count of Total Site Visits AUG TRAIN"),
+      subtitle = "(Training dataset, before oversampling)", 
+      y="Count",x="",
+      caption=paste0("Original number of training samples: ", 
+                     dim(df_train)[1])) +
+    geom_text(stat="count", aes(label=..count..),
+              vjust=1.3, color="white", size=4) +
+    ylim(0,800) +
+    scale_x_continuous(breaks=c(1,2,3,4,5,6))
+
+if (save_plots==TRUE){ggsave(paste0(eda_dir, "/upsampled_training_testing.png"), 
+         arrangeGrob(plot_train_dis_simple,
+                     plot_aug_dist_simple, 
+                     plot_no_site_visits_test_simple, 
+                     nrow = 1
+         ),
+         dpi=300, height=4, width=12)}
+
 ################################################################################
 
 plot_train_eip <- ggplot(df_train, aes(Class)) + 
@@ -1109,16 +1198,16 @@ if (save_plots==TRUE){ggsave(paste0(eda_dir, "/before_after_augment_reg.png"),
       dpi=300, height=4, width=12)}
 
 
-########################### EDA PLOTS OF ALL METRICS ########################### 
+########################### EDA PLOTS OF ALL METRICS ###########################
 for (metric in setdiff(c(candidate_list), "Strata")) {
   # metric <- "ChannelDimensions_score_NM"
   print(metric)
-  
-  
- 
+
+
+
   #boxplot
-  metric_box <- ggplot(df_model, aes(x = Class, 
-                       y = eval(parse(text = metric)), fill = Class)) + 
+  metric_box <- ggplot(df_model, aes(x = Class,
+                       y = eval(parse(text = metric)), fill = Class)) +
     geom_boxplot() +
     # geom_jitter(position=position_jitter(0.2)) +
     stat_summary(fun = "median", geom = "point", shape = 8,
@@ -1127,12 +1216,12 @@ for (metric in setdiff(c(candidate_list), "Strata")) {
          #subtitle = "(0 = Not Present, 1.5 = Present)",
           y="",
           caption=paste0("(",CURRENT_REGION_DISPLAY,
-                        ")\n Number of Samples: ", dim(df_model)[1], 
-                        "\n Number of Sites: ", 
+                        ")\n Number of Samples: ", dim(df_model)[1],
+                        "\n Number of Sites: ",
                         length(unique(df_model$SiteCode))[1]))
 
   # Histogram overlaid with kernel density curve
-  metric_hist <- df_model %>% ggplot(aes(x=eval(parse(text = metric)))) + 
+  metric_hist <- df_model %>% ggplot(aes(x=eval(parse(text = metric)))) +
     geom_histogram(aes(y=..density..),      #
                    # binwidth=.5,
                    # colour="black", fill="white"
@@ -1142,13 +1231,13 @@ for (metric in setdiff(c(candidate_list), "Strata")) {
          #subtitle = "(0 = Not Present, 1.5 = Present)",
         x="value", y="",
         caption=paste0("(",CURRENT_REGION_DISPLAY,
-                      ")\n Number of Samples: ", dim(df_model)[1], 
-                      "\n Number of Sites: ", 
+                      ")\n Number of Samples: ", dim(df_model)[1],
+                      "\n Number of Sites: ",
                       length(unique(df_model$SiteCode))[1]))
-  
+
   print(metric_box)
   print(metric_hist)
-  
+
   temp <- df_model[,c(metric, "SiteCode")]
   temp$fillcolor <- is.na(temp[, metric])
 
@@ -1157,14 +1246,14 @@ for (metric in setdiff(c(candidate_list), "Strata")) {
     coord_polar("y", start=0) +
     labs(x="% Complete", y=metric,
          caption=paste0("(",CURRENT_REGION_DISPLAY,
-                        ")\n Number of Samples: ", dim(temp)[1], 
-                        "\n Number of Sites: ", 
+                        ")\n Number of Samples: ", dim(temp)[1],
+                        "\n Number of Sites: ",
                         length(unique(temp$SiteCode))[1]))+
     scale_fill_manual(values=c("springgreen2","red"), name="Contains Missing")
   countMissing
-  
-  metric_box_region <- ggplot(df_model, aes(x = Region_detail, 
-                                            y = eval(parse(text = metric)), fill = Region_detail)) + 
+
+  metric_box_region <- ggplot(df_model, aes(x = Region_detail,
+                                            y = eval(parse(text = metric)), fill = Region_detail)) +
     geom_boxplot() +
     # geom_violin() +
     # geom_jitter(shape=16, position=position_jitter(0.01), size=1)+
@@ -1175,20 +1264,24 @@ for (metric in setdiff(c(candidate_list), "Strata")) {
       #subtitle = "(0 = Not Present, 1.5 = Present)",
       y="",
       caption=paste0("(",CURRENT_REGION_DISPLAY,
-                     ")\n Number of Samples: ", dim(df_model)[1], 
-                     "\n Number of Sites: ", 
+                     ")\n Number of Samples: ", dim(df_model)[1],
+                     "\n Number of Sites: ",
                      length(unique(df_model$SiteCode))[1]))
-  metric_box_region 
-  
-  
-  
- 
+  metric_box_region
+
+
+
+
 
   if (save_plots==TRUE){
-    ggsave(paste0(eda_dir, "/candidates/metric_", metric,".png"), 
-                               arrangeGrob(countMissing, metric_hist, 
-                                           metric_box, metric_box_region,
-                                           nrow = 2, 
+    ggsave(paste0(eda_dir, "/candidates/metric_", metric,".png"),
+                               # arrangeGrob(countMissing, metric_hist,
+                               #             metric_box, metric_box_region,
+                               #             nrow = 2,
+           arrangeGrob( metric_hist,
+                        arrangeGrob(metric_box, metric_box_region, ncol=2),
+                       nrow = 2,
+     
            # top=paste0("\n\n\n---------------------------------------------------------------------------------------------------------\n\n",metric)
            #                     ),
            #                     dpi=300, height=9, width=9)}

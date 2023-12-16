@@ -14,10 +14,10 @@ library(caret)
 library(dplyr)
 library(ggplot2)
 library(rstudioapi)
+library(readxl)
 
 # If TRUE, stores auxillary spreadsheets and plots
 save_all_output <- TRUE
-
 
 ################################# GET DATA ##############################
 # Set your working directory relative to this script
@@ -32,36 +32,32 @@ df_input <- read_csv(paste0(HOME_DIR,"/input/processed/df_model.csv"))
 # Clean up dataset
 df_input$Class <- as.factor(df_input$Class)
 df_input$Region <- as.factor(df_input$Region)
-df_input$HydricSoils_score <- as.numeric(df_input$HydricSoils_score) #TODO: check this
+# df_input$HydricSoils_score <- as.numeric(df_input$HydricSoils_score) #TODO: check this
 
 # Get GP metrics
-metrics_lookup <- read_xlsx("input/raw/metrics_dictionary.xlsx",
-                            sheet = "DATA_DICT") %>%
+gp_metrics_list <- read_xlsx("input/raw/metrics_dictionary.xlsx",
+                             sheet = "DATA_DICT") %>%
   filter(MetricSubtype!="Direct") %>%
-  filter(GP_final=="TRUE") %>% #SMG TODO check this
-  # filter(GP_final!="FALSE") %>%
+  filter(GP_final=="TRUE"|NGP=="TRUE"|SGP=="TRUE") %>%
   filter(MetricCandidate_KF=="TRUE")
-metrics_lookup <- metrics_lookup[!duplicated(metrics_lookup), ]
 
-
-# candidate_list <- (metrics_lookup %>% filter(GP_final=="TRUE"))$Metric
-candidate_list <- (metrics_lookup %>% filter(GP_final!="FALSE"))$Metric
+candidate_list <- gp_metrics_list$Metric
 
 #Remove categorical from screening
 candidate_list <- setdiff(c(candidate_list), "Strata")
 
 print(paste0("There are ", length(candidate_list)," candidate metrics"))
 
-bio_list <- (metrics_lookup %>% 
+bio_list <- (gp_metrics_list %>% 
     filter(GP_final=="TRUE") %>%
     filter(MetricType %in% c("Bio","Biology")))$Metric #SHOULD ONLY CONTAIN BIO
-gis_list <- (metrics_lookup %>% 
+gis_list <- (gp_metrics_list %>% 
     filter(GP_final=="TRUE") %>%
     filter(MetricType%in% c("Geospatial")))$Metric
-geomorph_list <- (metrics_lookup %>% 
+geomorph_list <- (gp_metrics_list %>% 
     filter(GP_final=="TRUE") %>%
     filter(MetricType%in% c("Geomorph")))$Metric
-h20_indirect_list <- (metrics_lookup %>% 
+h20_indirect_list <- (gp_metrics_list %>% 
     filter(GP_final=="TRUE") %>%
     filter(MetricType%in% c("Hydro")))$Metric
 
@@ -73,11 +69,7 @@ print(length(candidate_list) == (sum(length(bio_list),length(gis_list),
 info_list <- c("ParentGlobalID","CollectionDate","Region",
                "Region_detail","SiteCode","Class","Wet")
 
-# # Separate datasets
-# df_test <- df_input %>% filter(Dataset=="Testing")
-# df_train <- df_input %>% filter(Dataset=="Training" & Notes=="Original")
-
-# Create df to perform metric screening on (based on training data)
+# Create df to perform metric screening on (based on full dataset)
 df_screen <- df_input[, c(info_list, candidate_list)]
 
 ### ARE THERE ANY NaNs?
@@ -302,30 +294,63 @@ if (save_all_output == TRUE){ggsave(metric_screening_plot,
 # Summarize which metrics passed screening and which did not
 #
 ################################################################################
-summary_copy <- predictor_summary_passed_rf
-metric_summary <- summary_copy %>%
+metric_summary <- predictor_summary_passed_rf %>%
     mutate(
-        PassPctDom = PctDom<0.95, 
-        PassPvIvE_F = PvIvE_F>quantile(summary_copy$PvIvE_F, na.rm=T, probs=.75), 
-        PassEvALI_t_abs = PvIvE_F>quantile(summary_copy$EvALI_t_abs, na.rm=T, probs=.75),
-        PassPvLTP_t_abs = EvALI_t_abs>quantile(summary_copy$PvLTP_t_abs, na.rm=T, probs=.75),
-        PassEvIdry_t_abs = PvLTP_t_abs>quantile(summary_copy$EvIdry_t_abs, na.rm=T, probs=.75),
-        PassPvIWet_t_abs = PvIWet_t_abs>quantile(summary_copy$PvIWet_t_abs, na.rm=T, probs=.75),
-        Passrf_MDA = rf_MDA>quantile(summary_copy$rf_MDA, na.rm=T, probs=.75),
-        PassScreens = 
-            PctDom<0.95 & #Must have at least 5% variation
-            ##And must be in top quartile of responsiveness measures
-            (PassPvIvE_F|PassEvALI_t_abs|PassPvLTP_t_abs|PassEvIdry_t_abs|PassEvIdry_t_abs|PassPvIWet_t_abs|Passrf_MDA)
-        ) #TODO: must be gt 2 instead (sim to beta)
-#TODO: COMPARE PCTSHADING DATA VS BETA INPUT
+      PassPctDom = PctDom<0.95, 
+      PassPvIvE_F = PvIvE_F>2, 
+      PassEvALI_t_abs = EvALI_t_abs>2,
+      PassPvLTP_t_abs = PvLTP_t_abs>2,
+      PassEvIdry_t_abs = EvIdry_t_abs>2,
+      PassPvIWet_t_abs = PvIWet_t_abs>2,
+      Passrf_MDA = rf_MDA>quantile(summary_copy$rf_MDA, na.rm=T, probs=.75),
+      PassScreens = 
+        PctDom<0.95 & #Must have at least 5% variation
+        ##And must be in top quartile of responsiveness measures
+        (PassPvIvE_F|PassEvALI_t_abs|PassPvLTP_t_abs|PassEvIdry_t_abs|PassEvIdry_t_abs|PassPvIWet_t_abs|Passrf_MDA)
+    ) #TODO: must be gt 2 instead (sim to beta)
 
-# How many candidates passed screening?
-metric_summary %>% group_by(PassScreens) %>% tally()
-# metric_summary %>% group_by(MetricType, PassScreens) %>% tally()
-metric_summary %>% filter(PassScreens)
 
-# Save summary file
+
+# Apply screening criteria
+metric_summary %>% filter(PctDom<.95) %>% nrow() 
+metric_summary %>% filter(PvIvE_F > 2) %>% nrow() 
+metric_summary %>% filter(EvALI_t_abs > 2) %>% nrow()
+metric_summary %>% filter(PvLTP_t_abs > 2) %>% nrow()
+metric_summary %>% filter(EvIdry_t_abs > 2) %>% nrow()
+metric_summary %>% filter(PvIWet_t_abs > 2) %>% nrow()
+metric_summary %>% filter(rf_MDA_rank>=(nrow(predictor_summary)*.75)) %>% nrow() 
+
+
+# How many features failed screening?
+metric_summary %>% count(PassScreens)
+
+# How many features passed screening by predictor group?
+metric_summary %>%
+  filter(PassScreens=="Fail") %>%
+  group_by(PredGroup) %>%
+  tally()
+
+
+
 if (save_all_output == TRUE){
-    write_csv(metric_summary, 
-    file=paste0(HOME_DIR,"/output/screening/metric_summary.csv"))
-    }
+  write_csv(metric_summary, file=paste0(HOME_DIR,
+                   "/output/screening/metric_summary.csv"))}
+
+
+
+
+
+
+
+# #TODO: COMPARE PCTSHADING DATA VS BETA INPUT
+# 
+# # How many candidates passed screening?
+# metric_summary %>% group_by(PassScreens) %>% tally()
+# # metric_summary %>% group_by(MetricType, PassScreens) %>% tally()
+# metric_summary %>% filter(PassScreens)
+# 
+# # Save summary file
+# if (save_all_output == TRUE){
+#     write_csv(metric_summary, 
+#     file=paste0(HOME_DIR,"/output/screening/metric_summary.csv"))
+#     }
