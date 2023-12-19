@@ -39,7 +39,7 @@ numOfTrees <- 1500
 
 # models to run
 case_list <- c(
-  # "BaseModel_Unstrat" #for reference only
+  "BaseModel_Unstrat", #for reference only
   "BaseModel_S",       #for reference only
   "BaseModel_UNC",      #for reference only
 
@@ -50,7 +50,6 @@ case_list <- c(
   "2GIS_Unstrat",    #also, 2BMI limit
   "2GIS_UNC",        #also, 2BMI limit
   "2GIS_S"           #also, 2BMI limit
-  
 )
 
   
@@ -160,9 +159,6 @@ modelsdir <- paste0(models_dir, model_version)
 if (!dir.exists(modelsdir)){dir.create(modelsdir)}
 
 make_models <- function (case, numTrees) {
-  # case <- "BaseModel_Unstrat"
-  # numTrees <- 150
-  
   start_time <- Sys.time()
   debug_dir <- paste0(modelsdir, "/", case, "/debug")
   if (!dir.exists(debug_dir)){dir.create(debug_dir)}
@@ -313,29 +309,6 @@ make_models <- function (case, numTrees) {
     
   }
   else if(case == "2GIS_UNC"){
-    # # All eligible candidates
-    # eligible <- setdiff(candidate_list, candidates_failed_screen)
-    # 
-    # # Remove regional BMI/peren candidates
-    # eligible <- setdiff(eligible, region_peren_list)
-    # 
-    # # Remove GIS candidates
-    # eligibleNoGIS <- setdiff(eligible, metrics_gis_list)
-    # 
-    # # Remove candidates only intended for the south
-    # eligible <- setdiff(eligible, c("perintper_ISAsubregion_abundance",
-    #                                 "perintper_ISAsubregion_taxa"))
-    # 
-    # #Tracking eligible but failed screening
-    # eligible_but_failed <- intersect(
-    #   setdiff(setdiff(setdiff(candidate_list, region_peren_list),
-    #                   c("perintper_ISAsubregion_abundance",
-    #                     "perintper_ISAsubregion_taxa")), metrics_gis_list),
-    #   candidates_failed_screen)
-    # 
-    # ## Eligible candidates that are also GIS
-    # preds_allCandidates_GIS <- intersect(eligible, metrics_gis_list)
-    
     # Tracking eligible but failed screening
     eligible_but_failed <- intersect(ngp_bm_metrics, candidates_failed_screen)
     
@@ -372,23 +345,6 @@ make_models <- function (case, numTrees) {
   }
   
   else if(case == "2GIS_S"){
-    # # All eligible candidates
-    # eligible <- setdiff(candidate_list, candidates_failed_screen)
-    # 
-    # # Remove regional BMI/peren candidates
-    # eligible <- setdiff(eligible, region_peren_list)
-    # 
-    # # Remove GIS candidates
-    # eligibleNoGIS <- setdiff(eligible, metrics_gis_list)
-    # 
-    # ## Eligible candidates that are also GIS
-    # preds_allCandidates_GIS <- intersect(eligible, metrics_gis_list)
-    # 
-    # #Tracking eligible but failed screening
-    # eligible_but_failed <- intersect(
-    #   setdiff(setdiff(candidate_list, region_peren_list), metrics_gis_list),
-    #   candidates_failed_screen)
-    
     # Tracking eligible but failed screening
     eligible_but_failed <- intersect(sgp_bm_metrics, candidates_failed_screen)
     
@@ -452,7 +408,6 @@ make_models <- function (case, numTrees) {
     cat(paste("topGIS: ", topGIS), file=log_con, append = TRUE, sep="\n")
 
     ############################### MAKE RF INITIAL############################# 
-    # set.seed(88)
     set.seed(3)
     RF_initial <- randomForest(x=X_train,
                        y=y_train,
@@ -466,12 +421,11 @@ make_models <- function (case, numTrees) {
     saveRDS(RF_initial, file = paste0(debug_dir, "/", rdata_obj))
     ############################################################################
     
-    # set.seed(999)
     set.seed(4)
     RFE_obj <- rfe(
       y=y_train,
       x=X_train,
-      sizes=c(10:20, seq(from=25, to=len_predictors, length.out = 10), ##SMG: check length.out=5
+      sizes=c(10:20, seq(from=25, to=len_predictors, length.out = 10),
               len_predictors) %>% unique() %>% round(),
       rfeControl = rfeControl(functions = rfFuncs,
                               method = "cv",
@@ -504,7 +458,6 @@ make_models <- function (case, numTrees) {
         file=log_con, append = TRUE, sep="\n")
     
     # Make RF
-    # set.seed(1111)
     set.seed(5)
     RF <- randomForest(x=X_train[opt_preds],
                        y=y_train,
@@ -553,7 +506,7 @@ make_models <- function (case, numTrees) {
             P>=.5~"P",
             P>E~"ALI",
             E>P~"LTP",
-            P==E & I>P~"NMI", # no longer LI
+            P==E & I>P~"NMI",
             P==E & I<=P~"NMI",
             T~"Other"),
         #Identify correct classifications
@@ -640,24 +593,6 @@ make_models <- function (case, numTrees) {
       write_csv(df_big_errors, file=paste0(debug_dir, "/df_big_errors.csv"))
     }
 
-  
-    ############### For all models, summarize:
-    df_summary <- comb_results %>%  select(
-        c(col_post_pred,"PvIvE_correct","EvALI_correct",
-        "RF_Prediction_Majority","RF_Prediction_50","EvIdry_correct"))
-
-    # final summary
-    summary_stats <- df_summary %>% 
-      group_by(ModName, Dataset, Region_detail) %>%
-      # select(ModName, Class, Correct, EvALI_correct, Dataset, 
-      #        Region_detail, SiteCode) %>%
-      summarise(n_tests=length(SiteCode),
-                n_correct_PvIvE=sum(PvIvE_correct==TRUE),
-                pctCorrectPvIvE=n_correct_PvIvE/n_tests,
-                n_correct_EvALI=sum(EvALI_correct=="EvALI_correct"),
-                pctCorrect_EvALI=n_correct_EvALI/n_tests
-      )
-    write_csv(summary_stats, file=paste0(fpath,"_summary_stats.csv"))
     
     comb_results1 <- comb_results %>% filter(Dataset=="Training")
     comb_results2 <- comb_results %>% filter(Dataset=="Testing")

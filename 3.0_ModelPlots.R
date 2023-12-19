@@ -46,7 +46,11 @@ all_results_flat <- all_results_flat %>%
       ModName %in% c(paste0(model_version,"_BaseModel_UNC")) ~ "UNC (BaseModel)",
       ModName %in% c(paste0(model_version,"_BaseModel_S")) ~ "S (BaseModel)",
       ModName %in% c(paste0(model_version,"_BaseModel_Unstrat")) ~ "Unstrat (BaseModel)"
-    )
+    ),
+    P_or_I = case_when(Class %in% c("P", "I") ~ TRUE, T~F),
+    I_or_E = case_when(Class %in% c("I", "E") ~ TRUE, T~F),
+    P_or_I_wet = case_when(P_or_I & Wet ~ TRUE, T~F),
+    I_or_E_dry = case_when(I_or_E & !Wet ~ TRUE, T~F)
   )
 # reorder models so that similar ones are together (helps in plotting)
 all_results_flat$ModNameDisplay <- factor(all_results_flat$ModNameDisplay ,
@@ -74,7 +78,7 @@ PvIvE_precision_df <- repeated_data_set %>%
   mutate(PvIvE_precision = (DifferentClassifications)/(TotalVisits))
   # mutate(PvIvE_precision = (TimesClassified-1)/(TotalVisits-1))
 
-write_csv(PvIvE_precision_df, file=paste0(HOME_DIR,"/PvIvE_precision_df.csv"))
+write_csv(PvIvE_precision_df, file=paste0(HOME_DIR,"/output/models/PvIvE_precision_df.csv"))
 
 
 EvALI_precision_df <- repeated_data_set %>%
@@ -89,498 +93,49 @@ EvALI_precision_df <- repeated_data_set %>%
   mutate(EvALI_precision = (DifferentClassifications)/(TotalVisits))
   # mutate(EvALI_precision = (DifferentClassifications-1)/(TotalVisits-1))
 
-write_csv(EvALI_precision_df, file=paste0(HOME_DIR,"/EvALI_precision_df.csv"))
+write_csv(EvALI_precision_df, file=paste0(HOME_DIR,"/output/models/EvALI_precision_df.csv"))
 
 
-
-############################# SUMMARIZE ALL ##############################
-results_summary <- all_results_flat %>% 
-  group_by(ModNameStratGroup, Dataset, Stratification, Region_detail) %>%
+######################### COMPARISION (DOT) PLOTS ##############################
+#
+################################################################################
+all_results_flat_grouped2 <- all_results_flat %>% 
+  group_by(ModNameDisplay, Dataset, Stratification, Region_detail) %>%
   summarise(n_tests=length(SiteCode),
             n_tests_wet=sum(Wet),
             n_tests_dry=sum(!Wet),
             n_correct_PvIvE=sum(PvIvE_correct),
-            n_correct_EvALI=sum(EvALI_correct)
-            # n_correct_PvNP=sum(Class_PvNP==Prediction_PvNP, na.rm=T),
-            # n_correct_PvIwet=sum(Class[wet]==Prediction[wet]),
-            # n_correct_IvEdry=sum(Class[!wet]==Prediction[!wet])
-  ) %>%
-  ungroup() %>%
-  mutate(pct_correct_PvIvE = n_correct_PvIvE/n_tests,
-         pct_correct_EvALI = n_correct_EvALI/n_tests
-         # pct_correct_PvNP =  n_correct_PvNP/n_tests,
-         # pct_correct_PvIwet = n_correct_PvIwet/n_tests_wet,
-         # pct_correct_IvEdry = n_correct_IvEdry/n_tests_dry
-  ) %>% 
-  as.data.frame()
-
-
-######################### HEATMAP PLOTS OF CHOSEN FEATURES #####################
-# 
-#
-################################################################################
-## Open all RF, get their features
-case_list <- c(
-  "2GIS_S",
-  "2GIS_UNC",
-  "2GIS_Unstrat",
-  "NoGIS_S",
-  "NoGIS_UNC",
-  "NoGIS_Unstrat",
-  "BaseModel_S",
-  "BaseModel_UNC",
-  "BaseModel_Unstrat"
-)
-
-## Dictionary of selected predictors per model
-predictor_dictionary = {}
-for (c in case_list){
-  # c2 <- sub(".*_", "", c)
-  # print(paste("\n CASE:", c, "c2:", c2))
-  rfname<-paste0(parent_path,"/", c, "/RF_", c , ".rds")
-  print(rfname)
-  RF <- readRDS(rfname)
-  predictors <- row.names(RF$importance)
-  print(predictors)
-  predictor_dictionary[c] = list(predictors)
-  
-  print("----------------")
-}
-
-# use data dictionary to subset data into lists
-metrics_lookup <- read_xlsx("input/raw/metrics_dictionary.xlsx",
-                            sheet = "DATA_DICT") %>%
-  filter(MetricSubtype!="Direct") %>%
-  filter(MetricCandidate_KF=="TRUE")
-metrics_gp <- metrics_lookup %>% filter(GP_final=="TRUE")
-metrics_sgp <- metrics_lookup %>% filter(SGP=="TRUE")
-metrics_ngp <- metrics_lookup %>% filter(NGP=="TRUE")
-
-bio_list <- (metrics_lookup %>% filter(MetricType =="Bio"))$Metric
-geomorph_list <- (metrics_lookup %>% filter(MetricType =="Geomorph"))$Metric
-gis_list <- (metrics_lookup %>% filter(MetricType =="Geospatial"))$Metric
-h20_indirect_list <- (metrics_lookup %>% filter(MetricType =="Hydro"))$Metric
-
-
-subcat_list_algae <- (metrics_lookup %>% filter(MetricSubtype =="Algae"))$Metric
-subcat_list_bmi <- (metrics_lookup %>% filter(MetricSubtype =="BMI"))$Metric
-subcat_list_climate <- (metrics_lookup %>% filter(MetricSubtype =="Climate"))$Metric
-subcat_list_geomorph <- (metrics_lookup %>% filter(MetricSubtype =="Geomorph"))$Metric
-subcat_list_indir <- (metrics_lookup %>% filter(MetricSubtype =="Indirect"))$Metric
-subcat_list_veg <- (metrics_lookup %>% filter(MetricSubtype =="Veg"))$Metric
-subcat_list_vert <- (metrics_lookup %>% filter(MetricSubtype =="Vertebrates"))$Metric
-subcat_list_watershed <- (metrics_lookup %>% filter(MetricSubtype =="Watershed"))$Metric
-
-# Get all candidate predictors that passed screening
-predictor_summary <- read_csv(paste0(HOME_DIR,
-                                   "/output/screening/metric_summary.csv"))
-predictor_summary <- predictor_summary %>% select(c("Predictor", "PassScreens"))
-candidates_passed_screen <- (predictor_summary %>% filter(PassScreens))$Predictor
-candidates_failed_screen <- (predictor_summary %>% filter(!PassScreens))$Predictor
-
-### Eligible lists
-unstrat_bm_elig <- setdiff(metrics_gp$Metric, candidates_failed_screen)
-s_bm_elig <- setdiff(metrics_sgp$Metric, candidates_failed_screen)
-unc_bm_elig <- setdiff(metrics_ngp$Metric, candidates_failed_screen)
-
-unstrat_nogis_elig <- setdiff(unstrat_bm_elig, gis_list)
-s_nogis_elig <- setdiff(s_bm_elig, gis_list)
-unc_nogis_elig <- setdiff(unc_bm_elig, gis_list)
-
-
-
-
-predictor_matrix <- data.frame(candidates_passed_screen) %>% 
-  crossing(unique(all_results_flat$ModNameDisplay)) %>%
-  rename(ModNameDisplay="unique(all_results_flat$ModNameDisplay)",
-         Option="candidates_passed_screen") %>%
-  group_by(ModNameDisplay) %>% mutate(
-    Selected = case_when(
-      (Option %in% unlist(predictor_dictionary[["BaseModel_Unstrat"]]) & ModNameDisplay=="Unstrat (BaseModel)")~T, 
-      (Option %in% unlist(predictor_dictionary[["BaseModel_UNC"]]) & ModNameDisplay=="UNC (BaseModel)")~T, 
-      (Option %in% unlist(predictor_dictionary[["BaseModel_S"]]) & ModNameDisplay=="S (BaseModel)")~T, 
-      (Option %in% unlist(predictor_dictionary[["2GIS_Unstrat"]]) & ModNameDisplay=="Unstrat (2GIS)")~T, 
-      (Option %in% unlist(predictor_dictionary[["2GIS_UNC"]]) & ModNameDisplay=="UNC (2GIS)")~T, 
-      (Option %in% unlist(predictor_dictionary[["2GIS_S"]]) & ModNameDisplay=="S (2GIS)")~T, 
-      (Option %in% unlist(predictor_dictionary[["NoGIS_Unstrat"]]) & ModNameDisplay=="Unstrat (NoGIS)")~T, 
-      (Option %in% unlist(predictor_dictionary[["NoGIS_UNC"]]) & ModNameDisplay=="UNC (NoGIS)")~T,
-      (Option %in% unlist(predictor_dictionary[["NoGIS_S"]]) & ModNameDisplay=="S (NoGIS)")~T,
-      T~F),
-    IncludeGIS = case_when(
-      ModNameDisplay %in% c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)")~T,
-      T~F),
-    # nEligible = case_when(
-    #   ModNameDisplay %in% c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)",
-    #                         "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")~no_eligible,
-    #   ModNameDisplay %in% c("Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)")~no_eligible_noGIS),
-    PredGroup = case_when(
-      Option %in% bio_list~"Biological",
-      Option %in% geomorph_list~"Geomorphological",
-      # Option %in% h20_direct_list ~ "Hydrological",
-      Option %in% h20_indirect_list ~ "H20_Indirect",
-      Option %in% gis_list~"GIS",
-      T~"Other"),
-    Subcat = case_when(
-      Option %in% subcat_list_algae~"Algae",
-      Option %in% subcat_list_bmi~"BMI",
-      Option %in% subcat_list_climate~"Climate",
-      Option %in% subcat_list_geomorph~"Geomorph",
-      Option %in% subcat_list_indir~"H20 (indirect)",
-      Option %in% subcat_list_veg~"Veg",
-      Option %in% subcat_list_vert~"Vert",
-      Option %in% subcat_list_watershed~"Watershed",
-      # Option %in% subcat_list_ai~"AI",
-      # Option %in% subcat_list_plants~"Plants",
-      # Option %in% subcat_list_fish~"Fish",
-      # Option %in% subcat_list_fungi~"Fungi",
-      Option %in% subcat_list_climate~"Other",
-      T~"Other"),
-    # Eligible = case_when(
-    #   !PredGroup %in% c("Hydrological","GIS")~T,
-    #   PredGroup == "GIS" & IncludeGIS~T,
-    #   PredGroup == "Hydrological" ~F,
-    #   T~F),
-    Eligible = case_when(
-      Option %in% unstrat_bm_elig & ModNameDisplay=="Unstrat (BaseModel)"~T,
-      Option %in% unc_bm_elig & ModNameDisplay=="UNC (BaseModel)"~T,
-      Option %in% s_bm_elig & ModNameDisplay=="S (BaseModel)"~T,
-      Option %in% unstrat_bm_elig & ModNameDisplay=="Unstrat (2GIS)"~T,
-      Option %in% unc_bm_elig & ModNameDisplay=="UNC (2GIS)"~T,
-      Option %in% s_bm_elig & ModNameDisplay=="S (2GIS)"~T,
-      Option %in% unstrat_nogis_elig & ModNameDisplay=="Unstrat (NoGIS)"~T,
-      Option %in% unc_nogis_elig & ModNameDisplay=="UNC (NoGIS)"~T,
-      Option %in% s_nogis_elig & ModNameDisplay=="S (NoGIS)"~T,
-      T~F),
-    NoPredsSelected = sum(Selected),
-    Fill = case_when(
-      Selected == T ~ "Selected",
-      (Eligible == T & Selected == F) ~ "NotSelected",
-      # Option %in% failed_screen_list~"FailedScreen",
-      T~"NotEligible"
-    ),
-    # # Fill = case_when(
-    # #   Option %in% failed_screen_list~"FailedScreen",
-    # #   T~Fill
-    # # ),
-    Strata = case_when(
-      ModNameDisplay %in% c("UNC (BaseModel)", "UNC (NoGIS)", "UNC (2GIS)")~"UNC",
-      ModNameDisplay %in% c("S (BaseModel)", "S (NoGIS)", "S (2GIS)")~"S",
-      T~"Unstratified"
-    ),
-    Stratified = case_when(
-      ModNameDisplay %in% c("UNC (BaseModel)", "UNC (NoGIS)", "UNC (2GIS)",
-                            "S (BaseModel)", "S (NoGIS)", "S (2GIS)")~T,
-      T~F
-    )
-  ) %>% ungroup() 
-
-
-
-# info_list <- (parameters_info %>% filter(Action =="info"))$Column
-# info_list <- replace(info_list, info_list=="Determination_final","Class") #Rename class
-# info_list <- setdiff(info_list, "Disturbances")
-# info_list <- c(info_list, "Lat_field","Long_field")
-# candidate_list <- (parameters_info %>% filter(Action =="candidate"))$Column
-# candidate_list <- setdiff(candidate_list, c("BMI_score","BMI_score_alt1","BMI_score_alt2","BMI_score_alt3","BMI_score_alt4"))
-
-
-# Get all candidate predictors that passed screening
-predictor_summary <- read_csv(paste0(HOME_DIR,
-                                     "/output/screening/metric_summary.csv"))
-predictor_summary <- predictor_summary %>% select(c("Predictor", "PassScreens"))
-candidates_passed_screen <- (predictor_summary %>% filter(PassScreens =="TRUE"))$Predictor
-# candidates_passed_screen <- c(candidates_passed_screen, "Strata")## Add region
-# candidates_passed_screen <- setdiff(candidates_passed_screen, c("BMI_score",
-#           "BMI_score_alt1","BMI_score_alt2","BMI_score_alt3","BMI_score_alt4"))
-
-# ###NEWSTUFF
-# candidates_passed_screen <- setdiff(candidates_passed_screen, c("ppt","ppt.m01","ppt.m02","ppt.m03","ppt.m04","ppt.m05",
-#                                                                 "ppt.m06","ppt.m07","ppt.m08","ppt.m09","ppt.m10","ppt.m11",
-#                                                                 "ppt.m12","tmax","tmin","tmean","temp.m01","temp.m02","temp.m03",
-#                                                                 "temp.m04","temp.m05","temp.m06","temp.m07","temp.m08","temp.m09","temp.m10","temp.m11","temp.m12"))
-# gis_list <- setdiff(gis_list,c("ppt","ppt.m01","ppt.m02","ppt.m03","ppt.m04","ppt.m05",
-#                                "ppt.m06","ppt.m07","ppt.m08","ppt.m09","ppt.m10","ppt.m11",
-#                                "ppt.m12","tmax","tmin","tmean","temp.m01","temp.m02","temp.m03",
-#                                "temp.m04","temp.m05","temp.m06","temp.m07","temp.m08","temp.m09","temp.m10","temp.m11","temp.m12"))
-# candidates_passed_screen <- c(candidates_passed_screen, "ppt.234","ppt.567","ppt.8910","ppt.11121","temp.234","temp.567","temp.8910","temp.11121")
-# gis_list <- c(gis_list, "ppt.234","ppt.567","ppt.8910","ppt.11121","temp.234","temp.567","temp.8910","temp.11121")
-# ###NEWSTUFF
-
-EligiblePreds <- candidates_passed_screen #setdiff(candidates_passed_screen, "BFI")
-EligiblePreds_noGIS <- setdiff(candidates_passed_screen, gis_list)
-
-# no_possible <- length(candidate_list)
-no_eligible <- length(candidates_passed_screen)
-no_eligible_noGIS <- length(EligiblePreds_noGIS)
-
-# models <- all_results_flat$ModName %>%unique()
-models <- all_results_flat$ModNameDisplay %>%unique()
-## Create summary matrix of selections
-# predictor_matrix <- data.frame(candidate_list) %>% 
-predictor_matrix <- data.frame(candidates_passed_screen) %>% 
-  crossing(unique(all_results_flat$ModNameDisplay)) %>%
-  rename(ModNameDisplay="unique(all_results_flat$ModNameDisplay)",
-         Option="candidates_passed_screen") %>%
-  group_by(ModNameDisplay) %>% mutate(
-    Selected = case_when(
-      (Option %in% unlist(predictor_dictionary[["BaseModel_Unstrat"]]) & ModNameDisplay=="Unstrat (BaseModel)")~T, 
-      (Option %in% unlist(predictor_dictionary[["BaseModel_UNC"]]) & ModNameDisplay=="UNC (BaseModel)")~T, 
-      (Option %in% unlist(predictor_dictionary[["BaseModel_S"]]) & ModNameDisplay=="S (BaseModel)")~T, 
-      (Option %in% unlist(predictor_dictionary[["2GIS_Unstrat"]]) & ModNameDisplay=="Unstrat (2GIS)")~T, 
-      (Option %in% unlist(predictor_dictionary[["2GIS_UNC"]]) & ModNameDisplay=="UNC (2GIS)")~T, 
-      (Option %in% unlist(predictor_dictionary[["2GIS_S"]]) & ModNameDisplay=="S (2GIS)")~T, 
-      (Option %in% unlist(predictor_dictionary[["NoGIS_Unstrat"]]) & ModNameDisplay=="Unstrat (NoGIS)")~T, 
-      (Option %in% unlist(predictor_dictionary[["NoGIS_UNC"]]) & ModNameDisplay=="UNC (NoGIS)")~T,
-      (Option %in% unlist(predictor_dictionary[["NoGIS_S"]]) & ModNameDisplay=="S (NoGIS)")~T,
-      T~F),
-    IncludeGIS = case_when(
-      ModNameDisplay %in% c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)")~T,
-      T~F),
-    nEligible = case_when(
-      ModNameDisplay %in% c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)",
-                            "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")~no_eligible,
-      ModNameDisplay %in% c("Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)")~no_eligible_noGIS),
-    PredGroup = case_when(
-      Option %in% bio_list~"Biological",
-      Option %in% geomorph_list~"Geomorphological",
-      # Option %in% h20_direct_list ~ "Hydrological",
-      Option %in% h20_indirect_list ~ "H20_Indirect",
-      Option %in% gis_list~"GIS",
-      T~"Other"),
-    Subcat = case_when(
-      Option %in% subcat_list_algae~"Algae",
-      Option %in% subcat_list_bmi~"BMI",
-      Option %in% subcat_list_climate~"Climate",
-      Option %in% subcat_list_geomorph~"Geomorph",
-      Option %in% subcat_list_indir~"H20 (indirect)",
-      Option %in% subcat_list_veg~"Veg",
-      Option %in% subcat_list_vert~"Vert",
-      Option %in% subcat_list_watershed~"Watershed",
-      # Option %in% subcat_list_ai~"AI",
-      # Option %in% subcat_list_plants~"Plants",
-      # Option %in% subcat_list_fish~"Fish",
-      # Option %in% subcat_list_fungi~"Fungi",
-      Option %in% subcat_list_climate~"Other",
-      T~"Other"),
-    Eligible = case_when(
-      !PredGroup %in% c("Hydrological","GIS")~T,
-      PredGroup == "GIS" & IncludeGIS~T,
-      PredGroup == "Hydrological" ~F,
-      T~F),
-    NoPredsSelected = sum(Selected),
-    Fill = case_when(
-      Selected == T ~ "Selected",
-      (Eligible == T & Selected == F) ~ "NotSelected",
-      # Option %in% failed_screen_list~"FailedScreen",
-      T~"NotEligible"
-    ),
-    # # Fill = case_when(
-    # #   Option %in% failed_screen_list~"FailedScreen",
-    # #   T~Fill
-    # # ),
-    Strata = case_when(
-      ModNameDisplay %in% c("UNC (BaseModel)", "UNC (NoGIS)", "UNC (2GIS)")~"UNC",
-      ModNameDisplay %in% c("S (BaseModel)", "S (NoGIS)", "S (2GIS)")~"S",
-      T~"Unstratified"
-    ),
-    Stratified = case_when(
-      ModNameDisplay %in% c("UNC (BaseModel)", "UNC (NoGIS)", "UNC (2GIS)",
-                            "S (BaseModel)", "S (NoGIS)", "S (2GIS)")~T,
-      T~F
-    )
-  ) %>% ungroup() 
-
-
-predictor_matrix <- predictor_matrix  %>%
-  group_by(Subcat)
-predictor_matrix <- predictor_matrix %>%arrange(Subcat) #%>%select(Option) %>% unique()
-
-
-
-# write_csv(predictor_matrix, file=paste0(parent_path,"/predictor_matrix.csv"))
-# print("wrote csv1")
-# 
-# # combine strat models
-predictor_matrix_grouped <- predictor_matrix %>%
-  mutate(ModNameGrouped = case_when(
-    ModNameDisplay %in% c("UNC (NoGIS)", "S (NoGIS)") ~ "Strat_NoGIS",
-    ModNameDisplay %in% c("UNC (2GIS)", "S (2GIS)") ~ "Strat_2GIS",
-    ModNameDisplay %in% c("UNC (BaseModel)", "S (BaseModel)") ~ "Strat_BaseModel",
-    ModNameDisplay %in% c("Unstrat (NoGIS)") ~ "Unstrat_NoGIS",
-    ModNameDisplay %in% c("Unstrat (2GIS)") ~ "Unstrat_2GIS",
-    ModNameDisplay %in% c("Unstrat (BaseModel)") ~ "Unstrat_BaseModel"
-  )) %>% group_by(ModNameGrouped, Option) %>%
-  mutate(FillCount=sum(Selected)) %>%
-  ungroup() %>% mutate(
-    FillTimes = case_when(
-      # Fill == "FailedScreen" ~ "FailedScreen",
-      FillCount == 0 & Eligible == TRUE ~ "Not Selected",
-      # FillCount == 1 & Stratified == TRUE ~ "Selected - 1 Region",
-      # FillCount == 1 & Stratified == FALSE ~ "Selected - Unstrat",
-      # FillCount == 2 & Stratified == TRUE ~ "Selected - 2 Region",
-      # FillCount == 3 & Stratified == TRUE ~ "Selected - 3 Region",
-      # FillCount == 4 & Stratified == TRUE~ "Selected - All Region",
-      Eligible == FALSE ~ "NotEligible"
-    ),
-    color_group = case_when(
-      FillTimes == "Not Selected" ~ "not_selected_color",
-      # FillTimes == "FailedScreen" ~ "failed_screen_color",
-      # FillTimes == "Selected - 1 Region" ~ "light_color",
-      # FillTimes == "Selected - 2 Region" ~ "med_color",
-      # FillTimes == "Selected - 3 Region" ~ "red", #dark_color",
-      FillTimes == "NotEligible" ~ "not_elig_color"
-    )
-  )
-# #reorder for clarity
-# predictor_matrix_grouped$ModNameStratGroup <- factor(predictor_matrix_grouped$ModNameGrouped,
-#              levels = c("Unstrat_BaseModel","Unstrat_2GIS","Unstrat_NoGIS",
-#                         "Strat_BaseModel","Strat_2GIS","Strat_NoGIS"))
-
-## order xaxis by group
-predlist <- arrange(predictor_matrix_grouped %>%ungroup(),
-                    desc(Option),
-                    group_by = PredGroup)
-tmp <- predictor_matrix_grouped  %>%
-  ungroup() %>%
-  group_by(PredGroup)
-tmp <- tmp %>% arrange(PredGroup) %>%select(Option) %>% unique()
-predictor_matrix_grouped$Option <- factor(predictor_matrix_grouped$Option,
-                                          levels=unique(tmp$Option))
-
-######## HORIZONTAL
-predictor_matrix_grouped$Option <- factor(predictor_matrix_grouped$Option,
-                                          levels=unique(tmp$Option))
-heatmap <- ggplot(
-  data=predictor_matrix_grouped,
-  mapping = aes(x=Option, y=ModNameGrouped)) +
-  geom_tile(aes(fill=factor(color_group)), color="grey30") +
-  scale_fill_manual(
-    values=c(
-      "not_elig_color"="white",
-      "failed_screen_color"="grey",
-      "not_selected_color"="gray50",
-      "light_color"="lightblue1",
-      "med_color"="cornflowerblue",
-      "dark_color"="blue"
-    ),
-    labels=c(
-      "not_elig_color"="Not Elgiible",
-      "failed_screen_color"="Did not pass screening",
-      "not_selected_color"="Not Selected",
-      "light_color"="Selected - 1 Region",
-      "med_color"="Selected - 2 Region",
-      "dark_color"="Selected - 3 Region"
-    ),
-    name="Features" ) +
-  # xlab("Indicators")+
-  ylab("")+ labs(
-    title="Which Indicators are Used in the Model(s)",
-    fill="Candidates")+
-  theme_bw() + xlab("")+
-  theme(axis.text.x = element_text( angle = 90,#60,
-                                    vjust = 1,
-                                    hjust=1, size=7.5
-                                    # colour = colors
-  ))
-heatmap
-ggsave(heatmap, height=4.5, width =12, dpi=300,
-       filename="output/models/heatmap_horizontal.png")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## add revisted flag
-# all_results_flat <- all_results_flat %>%
-#   mutate(revist = case_when(TotalVisits>1~TRUE, T~FALSE))
-
-# write.csv(all_results_flat%>%filter(
-#   ModNameStratGroup=="Unstrat_BaseModel"), "all_results_flat.csv")
-
-# ####### Precision
-# getmode <- function(v) {
-#   uniqv <- unique(v)
-#   uniqv[which.max(tabulate(match(v, uniqv)))]
-# }
-
-
-
-
-# #########PLOT EACH Region_detail
-# mod_summ_all_models <- all_results_flat %>% 
-#   filter(TotalVisits > 1) %>% 
-#   group_by(ModName, SiteCode, Dataset) %>%
-#   summarise(n_visits=length(SiteCode),
-#             mode=getmode(RF_Prediction_50),
-#             pct_mode_PvIvE=sum(RF_Prediction_50==mode)/n_visits
-#   ) %>%
-#   ungroup() %>%
-#   group_by(ModName, Dataset) %>%
-#   summarise(AvgPctMode=mean(pct_mode_PvIvE)) %>% 
-#   ungroup() 
-
-other_metrics <- all_results_flat %>% mutate(
-  P_or_I = case_when(Class %in% c("P", "I") ~ TRUE, T~F),
-  I_or_E = case_when(Class %in% c("I", "E") ~ TRUE, T~F),
-  P_or_I_wet = case_when(P_or_I & Wet ~ TRUE, T~F),
-  I_or_E_dry = case_when(I_or_E & !Wet ~ TRUE, T~F)
-)
-
-all_results_flat_grouped2 <- other_metrics %>% 
-  group_by(ModNameDisplay, Dataset, Stratification, Region_detail) %>%
-  summarise(n_tests=length(SiteCode),
-            # n_tests_wet=sum(Wet),
-            # n_tests_dry=sum(!Wet),
-            n_correct_PvIvE=sum(PvIvE_correct),
             n_correct_EvALI=sum(EvALI_correct),
-            # n_correct_PvNP=sum(Class_PvNP==Prediction_PvNP, na.rm=T),
             n_correct_PvIwet=sum(Class[P_or_I_wet]==RF_Prediction_50[P_or_I_wet]),
             n_correct_IvEdry=sum(Class[I_or_E_dry]==RF_Prediction_50[I_or_E_dry]),
             n_wet_P_or_I=sum(P_or_I_wet),
             n_dry_I_or_E=sum(I_or_E_dry)
-            
-            # n_correct_PvIvE_wet=sum(Class[Wet]==RF_Prediction_50[Wet]),
-            # n_correct_PvIvE_dry=sum(Class[!Wet]==RF_Prediction_50[!Wet])
-            ) %>%
+  ) %>%
   ungroup() %>%
   mutate(pct_correct_PvIvE = n_correct_PvIvE/n_tests,
          pct_correct_EvALI = n_correct_EvALI/n_tests,
-         # pct_correct_PvNP =  n_correct_PvNP/n_tests,
          pct_correct_PvIwet = n_correct_PvIwet/n_wet_P_or_I,
          pct_correct_IvEdry = n_correct_IvEdry/n_dry_I_or_E
-         
-         # pct_correct_PvIvE_wet = n_correct_PvIvE_wet/n_tests_wet,
-         # pct_correct_PvIvE_dry = n_correct_PvIvE_dry/n_tests_dry
-         ) %>% 
+  ) %>% 
   as.data.frame()
 
-
-
+################################# DOT PLOT 1 ###################################
+# Plot of PvIvE, EvALI, PvIwet, IvEdry metrics. 
+# Showing individual models.
+################################################################################
 df_dots1 <- all_results_flat_grouped2 %>%
-  select(-n_correct_PvIvE, -n_correct_EvALI#, -n_correct_PvNP
-  ) %>%
-  pivot_longer(cols=starts_with("pct"), values_to="Accuracy", 
-               names_to="Measure") %>% 
-  mutate(Measure=str_sub(Measure, start=13)) %>%
-  filter(ModNameDisplay %in% c("UNC (NoGIS)", "S (NoGIS)", "Unstrat (NoGIS)",
+    select(-n_correct_PvIvE, -n_correct_EvALI) %>%
+    pivot_longer(cols=starts_with("pct"), values_to="Accuracy", 
+                 names_to="Measure") %>% 
+    mutate(Measure=str_sub(Measure, start=13)) %>%
+    filter(ModNameDisplay %in% c("UNC (NoGIS)", "S (NoGIS)", "Unstrat (NoGIS)",
                                "UNC (2GIS)", "S (2GIS)", "Unstrat (2GIS)"))
 
 df_dots1$Measure <- factor(df_dots1$Measure,
-                   levels=c("PvIvE","EvALI","PvIwet","IvEdry" ))
+                           levels=c("PvIvE","EvALI","PvIwet","IvEdry" ))
 
 df_dots1$Dataset <- factor(df_dots1$Dataset, 
-                                       levels=c("Testing","Training"))
+                           levels=c("Testing","Training"))
 label_names <- c(
   `PvIvE` = "Accuracy\nPvIvE",
   `EvALI` = "Accuracy\nEvALI",
@@ -611,23 +166,26 @@ ggsave(dotplot1, height=4, width = 9, units="in", dpi=900,
        filename=paste0(parent_path, "/dotplot1.png"))
 
 
-
+################################# DOT PLOT 2 ###################################
+# Plot of PvIvE, EvALI, PvIwet, IvEdry metrics. 
+# Showing individual models.
+################################################################################
 
 mod_summ_all_models2 <- all_results_flat_grouped2 %>%
   select(-n_correct_PvIvE, -n_correct_EvALI#, -n_correct_PvNP
-         ) %>%
+  ) %>%
   pivot_longer(cols=starts_with("pct"), values_to="Accuracy", 
                names_to="Measure") %>% 
   mutate(Measure=str_sub(Measure, start=13))# %>%
-  # bind_rows(mod_summ_all_models %>%
-  #             rename(Accuracy=AvgPctMode) %>%
-  #             mutate(Measure="Precision")) %>%
-  # select(-Precision)
+# bind_rows(mod_summ_all_models %>%
+#             rename(Accuracy=AvgPctMode) %>%
+#             mutate(Measure="Precision")) %>%
+# select(-Precision)
 
 mod_summ_all_models2$Measure <- factor(mod_summ_all_models2$Measure, 
                                        levels=c("PvIvE","EvALI"#, "PvNP","PvIwet","IvEdry",
                                                 # "Precision"
-                                                ))
+                                       ))
 
 mod_summ_all_models2$Dataset <- factor(mod_summ_all_models2$Dataset, 
                                        levels=c("Testing","Training"))
@@ -665,9 +223,9 @@ mod_summ_all_models2 <- mod_summ_all_models2 %>% mutate(
                      #  ModName=="Strat"~"Strat"
   ))
 mod_summ_all_models2$ModName3 <- factor(mod_summ_all_models2$ModName3,
-      levels = rev(c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)",
-                     "Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)",
-                     "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")))
+                                        levels = rev(c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)",
+                                                       "Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)",
+                                                       "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")))
 mod_summ_all_models2_plot <- ggplot(data=mod_summ_all_models2, 
                                     aes(x=ModName3, y=Accuracy))+
   geom_jitter(aes(size=Dataset, color=Region_detail), width=0.04, height=0)+
@@ -694,9 +252,9 @@ ggsave(mod_summ_all_models2_plot, height=4.5, width = 7.5, units="in", dpi=900,
 
 
 mod_summ_all_models2_plot_filter <- ggplot(data=mod_summ_all_models2 %>% 
-   filter(ModName3 %in% c("Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)",
-                         "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")), 
-                          aes(x=ModName3, y=Accuracy))+
+                                             filter(ModName3 %in% c("Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)",
+                                                                    "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")), 
+                                           aes(x=ModName3, y=Accuracy))+
   geom_jitter(aes(size=Dataset, color=Region_detail), width=0.04, height=0)+
   scale_color_manual(
     values=c(
@@ -722,21 +280,21 @@ ggsave(mod_summ_all_models2_plot_filter, height=4, width = 7, units="in", dpi=90
 
 df3 <- mod_summ_all_models2 %>% mutate(
   ModNameStratGroup=case_when(ModName=="DraftFinalModels2_2GIS_S"~"Strat (2GIS)",
-                     ModName=="DraftFinalModels2_2GIS_UNC"~"Strat (2GIS)",
-                     ModName=="DraftFinalModels2_2GIS_Unstrat"~"Unstrat (2GIS)",
-                     ModName=="DraftFinalModels2_BaseModel_S"~"Strat (BaseModel)",
-                     ModName=="DraftFinalModels2_BaseModel_UNC"~"Strat (BaseModel)",
-                     ModName=="DraftFinalModels2_BaseModel_Unstrat"~"Unstrat (BaseModel)",
-                     ModName=="DraftFinalModels2_NoGIS_S"~"Strat (NoGIS)",
-                     ModName=="DraftFinalModels2_NoGIS_UNC"~"Strat (NoGIS)",
-                     ModName=="DraftFinalModels2_NoGIS_Unstrat"~"Unstrat (NoGIS)"
-                     # ModName=="NE_allGIS"~"NE (all GIS)",
-                     # ModName=="SE_allGIS"~"SE (all GIS)"
-                     #  ModName=="Strat"~"Strat"
+                              ModName=="DraftFinalModels2_2GIS_UNC"~"Strat (2GIS)",
+                              ModName=="DraftFinalModels2_2GIS_Unstrat"~"Unstrat (2GIS)",
+                              ModName=="DraftFinalModels2_BaseModel_S"~"Strat (BaseModel)",
+                              ModName=="DraftFinalModels2_BaseModel_UNC"~"Strat (BaseModel)",
+                              ModName=="DraftFinalModels2_BaseModel_Unstrat"~"Unstrat (BaseModel)",
+                              ModName=="DraftFinalModels2_NoGIS_S"~"Strat (NoGIS)",
+                              ModName=="DraftFinalModels2_NoGIS_UNC"~"Strat (NoGIS)",
+                              ModName=="DraftFinalModels2_NoGIS_Unstrat"~"Unstrat (NoGIS)"
+                              # ModName=="NE_allGIS"~"NE (all GIS)",
+                              # ModName=="SE_allGIS"~"SE (all GIS)"
+                              #  ModName=="Strat"~"Strat"
   )) #group_by( Stratification)
 mod_summ_all_models3_plot_filter <- ggplot(data=df3 %>%
-         filter(ModName3 %in% c("Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)",
-                             "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")),
+                                             filter(ModName3 %in% c("Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)",
+                                                                    "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")),
                                            aes(x=ModNameStratGroup, y=Accuracy))+
   geom_jitter(aes(size=Dataset, color=Region_detail), width=0.04, height=0)+
   scale_color_manual(
@@ -760,6 +318,424 @@ ggsave(mod_summ_all_models3_plot_filter, height=3.5, width = 7,
        units="in", dpi=900,
        filename=paste0(parent_path, "/dots_3.png"))
 
+
+
+
+
+# ######################### HEATMAP PLOTS OF CHOSEN FEATURES #####################
+# # 
+# #
+# ################################################################################
+# ## Open all RF, get their features
+# case_list <- c(
+#   "2GIS_S",
+#   "2GIS_UNC",
+#   "2GIS_Unstrat",
+#   "NoGIS_S",
+#   "NoGIS_UNC",
+#   "NoGIS_Unstrat",
+#   "BaseModel_S",
+#   "BaseModel_UNC",
+#   "BaseModel_Unstrat"
+# )
+# 
+# ## Dictionary of selected predictors per model
+# predictor_dictionary = {}
+# for (c in case_list){
+#   # c2 <- sub(".*_", "", c)
+#   # print(paste("\n CASE:", c, "c2:", c2))
+#   rfname<-paste0(parent_path,"/", c, "/RF_", c , ".rds")
+#   print(rfname)
+#   RF <- readRDS(rfname)
+#   predictors <- row.names(RF$importance)
+#   print(predictors)
+#   predictor_dictionary[c] = list(predictors)
+#   
+#   print("----------------")
+# }
+# 
+# # use data dictionary to subset data into lists
+# metrics_lookup <- read_xlsx("input/raw/metrics_dictionary.xlsx",
+#                             sheet = "DATA_DICT") %>%
+#   filter(MetricSubtype!="Direct") %>%
+#   filter(MetricCandidate_KF=="TRUE")
+# metrics_gp <- metrics_lookup %>% filter(GP_final=="TRUE")
+# metrics_sgp <- metrics_lookup %>% filter(SGP=="TRUE")
+# metrics_ngp <- metrics_lookup %>% filter(NGP=="TRUE")
+# 
+# bio_list <- (metrics_lookup %>% filter(MetricType =="Bio"))$Metric
+# geomorph_list <- (metrics_lookup %>% filter(MetricType =="Geomorph"))$Metric
+# gis_list <- (metrics_lookup %>% filter(MetricType =="Geospatial"))$Metric
+# h20_indirect_list <- (metrics_lookup %>% filter(MetricType =="Hydro"))$Metric
+# 
+# 
+# subcat_list_algae <- (metrics_lookup %>% filter(MetricSubtype =="Algae"))$Metric
+# subcat_list_bmi <- (metrics_lookup %>% filter(MetricSubtype =="BMI"))$Metric
+# subcat_list_climate <- (metrics_lookup %>% filter(MetricSubtype =="Climate"))$Metric
+# subcat_list_geomorph <- (metrics_lookup %>% filter(MetricSubtype =="Geomorph"))$Metric
+# subcat_list_indir <- (metrics_lookup %>% filter(MetricSubtype =="Indirect"))$Metric
+# subcat_list_veg <- (metrics_lookup %>% filter(MetricSubtype =="Veg"))$Metric
+# subcat_list_vert <- (metrics_lookup %>% filter(MetricSubtype =="Vertebrates"))$Metric
+# subcat_list_watershed <- (metrics_lookup %>% filter(MetricSubtype =="Watershed"))$Metric
+# 
+# # Get all candidate predictors that passed screening
+# predictor_summary <- read_csv(paste0(HOME_DIR,
+#                                    "/output/screening/metric_summary.csv"))
+# predictor_summary <- predictor_summary %>% select(c("Predictor", "PassScreens"))
+# candidates_passed_screen <- (predictor_summary %>% filter(PassScreens))$Predictor
+# candidates_failed_screen <- (predictor_summary %>% filter(!PassScreens))$Predictor
+# 
+# ### Eligible lists
+# unstrat_bm_elig <- setdiff(metrics_gp$Metric, candidates_failed_screen)
+# s_bm_elig <- setdiff(metrics_sgp$Metric, candidates_failed_screen)
+# unc_bm_elig <- setdiff(metrics_ngp$Metric, candidates_failed_screen)
+# 
+# unstrat_nogis_elig <- setdiff(unstrat_bm_elig, gis_list)
+# s_nogis_elig <- setdiff(s_bm_elig, gis_list)
+# unc_nogis_elig <- setdiff(unc_bm_elig, gis_list)
+# 
+# 
+# 
+# 
+# predictor_matrix <- data.frame(candidates_passed_screen) %>% 
+#   crossing(unique(all_results_flat$ModNameDisplay)) %>%
+#   rename(ModNameDisplay="unique(all_results_flat$ModNameDisplay)",
+#          Option="candidates_passed_screen") %>%
+#   group_by(ModNameDisplay) %>% mutate(
+#     Selected = case_when(
+#       (Option %in% unlist(predictor_dictionary[["BaseModel_Unstrat"]]) & ModNameDisplay=="Unstrat (BaseModel)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["BaseModel_UNC"]]) & ModNameDisplay=="UNC (BaseModel)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["BaseModel_S"]]) & ModNameDisplay=="S (BaseModel)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["2GIS_Unstrat"]]) & ModNameDisplay=="Unstrat (2GIS)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["2GIS_UNC"]]) & ModNameDisplay=="UNC (2GIS)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["2GIS_S"]]) & ModNameDisplay=="S (2GIS)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["NoGIS_Unstrat"]]) & ModNameDisplay=="Unstrat (NoGIS)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["NoGIS_UNC"]]) & ModNameDisplay=="UNC (NoGIS)")~T,
+#       (Option %in% unlist(predictor_dictionary[["NoGIS_S"]]) & ModNameDisplay=="S (NoGIS)")~T,
+#       T~F),
+#     IncludeGIS = case_when(
+#       ModNameDisplay %in% c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)")~T,
+#       T~F),
+#     # nEligible = case_when(
+#     #   ModNameDisplay %in% c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)",
+#     #                         "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")~no_eligible,
+#     #   ModNameDisplay %in% c("Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)")~no_eligible_noGIS),
+#     PredGroup = case_when(
+#       Option %in% bio_list~"Biological",
+#       Option %in% geomorph_list~"Geomorphological",
+#       # Option %in% h20_direct_list ~ "Hydrological",
+#       Option %in% h20_indirect_list ~ "H20_Indirect",
+#       Option %in% gis_list~"GIS",
+#       T~"Other"),
+#     Subcat = case_when(
+#       Option %in% subcat_list_algae~"Algae",
+#       Option %in% subcat_list_bmi~"BMI",
+#       Option %in% subcat_list_climate~"Climate",
+#       Option %in% subcat_list_geomorph~"Geomorph",
+#       Option %in% subcat_list_indir~"H20 (indirect)",
+#       Option %in% subcat_list_veg~"Veg",
+#       Option %in% subcat_list_vert~"Vert",
+#       Option %in% subcat_list_watershed~"Watershed",
+#       # Option %in% subcat_list_ai~"AI",
+#       # Option %in% subcat_list_plants~"Plants",
+#       # Option %in% subcat_list_fish~"Fish",
+#       # Option %in% subcat_list_fungi~"Fungi",
+#       Option %in% subcat_list_climate~"Other",
+#       T~"Other"),
+#     # Eligible = case_when(
+#     #   !PredGroup %in% c("Hydrological","GIS")~T,
+#     #   PredGroup == "GIS" & IncludeGIS~T,
+#     #   PredGroup == "Hydrological" ~F,
+#     #   T~F),
+#     Eligible = case_when(
+#       Option %in% unstrat_bm_elig & ModNameDisplay=="Unstrat (BaseModel)"~T,
+#       Option %in% unc_bm_elig & ModNameDisplay=="UNC (BaseModel)"~T,
+#       Option %in% s_bm_elig & ModNameDisplay=="S (BaseModel)"~T,
+#       Option %in% unstrat_bm_elig & ModNameDisplay=="Unstrat (2GIS)"~T,
+#       Option %in% unc_bm_elig & ModNameDisplay=="UNC (2GIS)"~T,
+#       Option %in% s_bm_elig & ModNameDisplay=="S (2GIS)"~T,
+#       Option %in% unstrat_nogis_elig & ModNameDisplay=="Unstrat (NoGIS)"~T,
+#       Option %in% unc_nogis_elig & ModNameDisplay=="UNC (NoGIS)"~T,
+#       Option %in% s_nogis_elig & ModNameDisplay=="S (NoGIS)"~T,
+#       T~F),
+#     NoPredsSelected = sum(Selected),
+#     Fill = case_when(
+#       Selected == T ~ "Selected",
+#       (Eligible == T & Selected == F) ~ "NotSelected",
+#       # Option %in% failed_screen_list~"FailedScreen",
+#       T~"NotEligible"
+#     ),
+#     # # Fill = case_when(
+#     # #   Option %in% failed_screen_list~"FailedScreen",
+#     # #   T~Fill
+#     # # ),
+#     Strata = case_when(
+#       ModNameDisplay %in% c("UNC (BaseModel)", "UNC (NoGIS)", "UNC (2GIS)")~"UNC",
+#       ModNameDisplay %in% c("S (BaseModel)", "S (NoGIS)", "S (2GIS)")~"S",
+#       T~"Unstratified"
+#     ),
+#     Stratified = case_when(
+#       ModNameDisplay %in% c("UNC (BaseModel)", "UNC (NoGIS)", "UNC (2GIS)",
+#                             "S (BaseModel)", "S (NoGIS)", "S (2GIS)")~T,
+#       T~F
+#     )
+#   ) %>% ungroup() 
+# 
+# 
+# 
+# # info_list <- (parameters_info %>% filter(Action =="info"))$Column
+# # info_list <- replace(info_list, info_list=="Determination_final","Class") #Rename class
+# # info_list <- setdiff(info_list, "Disturbances")
+# # info_list <- c(info_list, "Lat_field","Long_field")
+# # candidate_list <- (parameters_info %>% filter(Action =="candidate"))$Column
+# # candidate_list <- setdiff(candidate_list, c("BMI_score","BMI_score_alt1","BMI_score_alt2","BMI_score_alt3","BMI_score_alt4"))
+# 
+# 
+# # Get all candidate predictors that passed screening
+# predictor_summary <- read_csv(paste0(HOME_DIR,
+#                                      "/output/screening/metric_summary.csv"))
+# predictor_summary <- predictor_summary %>% select(c("Predictor", "PassScreens"))
+# candidates_passed_screen <- (predictor_summary %>% filter(PassScreens =="TRUE"))$Predictor
+# # candidates_passed_screen <- c(candidates_passed_screen, "Strata")## Add region
+# # candidates_passed_screen <- setdiff(candidates_passed_screen, c("BMI_score",
+# #           "BMI_score_alt1","BMI_score_alt2","BMI_score_alt3","BMI_score_alt4"))
+# 
+# # ###NEWSTUFF
+# # candidates_passed_screen <- setdiff(candidates_passed_screen, c("ppt","ppt.m01","ppt.m02","ppt.m03","ppt.m04","ppt.m05",
+# #                                                                 "ppt.m06","ppt.m07","ppt.m08","ppt.m09","ppt.m10","ppt.m11",
+# #                                                                 "ppt.m12","tmax","tmin","tmean","temp.m01","temp.m02","temp.m03",
+# #                                                                 "temp.m04","temp.m05","temp.m06","temp.m07","temp.m08","temp.m09","temp.m10","temp.m11","temp.m12"))
+# # gis_list <- setdiff(gis_list,c("ppt","ppt.m01","ppt.m02","ppt.m03","ppt.m04","ppt.m05",
+# #                                "ppt.m06","ppt.m07","ppt.m08","ppt.m09","ppt.m10","ppt.m11",
+# #                                "ppt.m12","tmax","tmin","tmean","temp.m01","temp.m02","temp.m03",
+# #                                "temp.m04","temp.m05","temp.m06","temp.m07","temp.m08","temp.m09","temp.m10","temp.m11","temp.m12"))
+# # candidates_passed_screen <- c(candidates_passed_screen, "ppt.234","ppt.567","ppt.8910","ppt.11121","temp.234","temp.567","temp.8910","temp.11121")
+# # gis_list <- c(gis_list, "ppt.234","ppt.567","ppt.8910","ppt.11121","temp.234","temp.567","temp.8910","temp.11121")
+# # ###NEWSTUFF
+# 
+# EligiblePreds <- candidates_passed_screen #setdiff(candidates_passed_screen, "BFI")
+# EligiblePreds_noGIS <- setdiff(candidates_passed_screen, gis_list)
+# 
+# # no_possible <- length(candidate_list)
+# no_eligible <- length(candidates_passed_screen)
+# no_eligible_noGIS <- length(EligiblePreds_noGIS)
+# 
+# # models <- all_results_flat$ModName %>%unique()
+# models <- all_results_flat$ModNameDisplay %>%unique()
+# ## Create summary matrix of selections
+# # predictor_matrix <- data.frame(candidate_list) %>% 
+# predictor_matrix <- data.frame(candidates_passed_screen) %>% 
+#   crossing(unique(all_results_flat$ModNameDisplay)) %>%
+#   rename(ModNameDisplay="unique(all_results_flat$ModNameDisplay)",
+#          Option="candidates_passed_screen") %>%
+#   group_by(ModNameDisplay) %>% mutate(
+#     Selected = case_when(
+#       (Option %in% unlist(predictor_dictionary[["BaseModel_Unstrat"]]) & ModNameDisplay=="Unstrat (BaseModel)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["BaseModel_UNC"]]) & ModNameDisplay=="UNC (BaseModel)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["BaseModel_S"]]) & ModNameDisplay=="S (BaseModel)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["2GIS_Unstrat"]]) & ModNameDisplay=="Unstrat (2GIS)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["2GIS_UNC"]]) & ModNameDisplay=="UNC (2GIS)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["2GIS_S"]]) & ModNameDisplay=="S (2GIS)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["NoGIS_Unstrat"]]) & ModNameDisplay=="Unstrat (NoGIS)")~T, 
+#       (Option %in% unlist(predictor_dictionary[["NoGIS_UNC"]]) & ModNameDisplay=="UNC (NoGIS)")~T,
+#       (Option %in% unlist(predictor_dictionary[["NoGIS_S"]]) & ModNameDisplay=="S (NoGIS)")~T,
+#       T~F),
+#     IncludeGIS = case_when(
+#       ModNameDisplay %in% c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)")~T,
+#       T~F),
+#     nEligible = case_when(
+#       ModNameDisplay %in% c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)",
+#                             "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")~no_eligible,
+#       ModNameDisplay %in% c("Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)")~no_eligible_noGIS),
+#     PredGroup = case_when(
+#       Option %in% bio_list~"Biological",
+#       Option %in% geomorph_list~"Geomorphological",
+#       # Option %in% h20_direct_list ~ "Hydrological",
+#       Option %in% h20_indirect_list ~ "H20_Indirect",
+#       Option %in% gis_list~"GIS",
+#       T~"Other"),
+#     Subcat = case_when(
+#       Option %in% subcat_list_algae~"Algae",
+#       Option %in% subcat_list_bmi~"BMI",
+#       Option %in% subcat_list_climate~"Climate",
+#       Option %in% subcat_list_geomorph~"Geomorph",
+#       Option %in% subcat_list_indir~"H20 (indirect)",
+#       Option %in% subcat_list_veg~"Veg",
+#       Option %in% subcat_list_vert~"Vert",
+#       Option %in% subcat_list_watershed~"Watershed",
+#       # Option %in% subcat_list_ai~"AI",
+#       # Option %in% subcat_list_plants~"Plants",
+#       # Option %in% subcat_list_fish~"Fish",
+#       # Option %in% subcat_list_fungi~"Fungi",
+#       Option %in% subcat_list_climate~"Other",
+#       T~"Other"),
+#     Eligible = case_when(
+#       !PredGroup %in% c("Hydrological","GIS")~T,
+#       PredGroup == "GIS" & IncludeGIS~T,
+#       PredGroup == "Hydrological" ~F,
+#       T~F),
+#     NoPredsSelected = sum(Selected),
+#     Fill = case_when(
+#       Selected == T ~ "Selected",
+#       (Eligible == T & Selected == F) ~ "NotSelected",
+#       # Option %in% failed_screen_list~"FailedScreen",
+#       T~"NotEligible"
+#     ),
+#     # # Fill = case_when(
+#     # #   Option %in% failed_screen_list~"FailedScreen",
+#     # #   T~Fill
+#     # # ),
+#     Strata = case_when(
+#       ModNameDisplay %in% c("UNC (BaseModel)", "UNC (NoGIS)", "UNC (2GIS)")~"UNC",
+#       ModNameDisplay %in% c("S (BaseModel)", "S (NoGIS)", "S (2GIS)")~"S",
+#       T~"Unstratified"
+#     ),
+#     Stratified = case_when(
+#       ModNameDisplay %in% c("UNC (BaseModel)", "UNC (NoGIS)", "UNC (2GIS)",
+#                             "S (BaseModel)", "S (NoGIS)", "S (2GIS)")~T,
+#       T~F
+#     )
+#   ) %>% ungroup() 
+# 
+# 
+# predictor_matrix <- predictor_matrix  %>%
+#   group_by(Subcat)
+# predictor_matrix <- predictor_matrix %>%arrange(Subcat) #%>%select(Option) %>% unique()
+# 
+# 
+# 
+# # write_csv(predictor_matrix, file=paste0(parent_path,"/predictor_matrix.csv"))
+# # print("wrote csv1")
+# # 
+# # # combine strat models
+# predictor_matrix_grouped <- predictor_matrix %>%
+#   mutate(ModNameGrouped = case_when(
+#     ModNameDisplay %in% c("UNC (NoGIS)", "S (NoGIS)") ~ "Strat_NoGIS",
+#     ModNameDisplay %in% c("UNC (2GIS)", "S (2GIS)") ~ "Strat_2GIS",
+#     ModNameDisplay %in% c("UNC (BaseModel)", "S (BaseModel)") ~ "Strat_BaseModel",
+#     ModNameDisplay %in% c("Unstrat (NoGIS)") ~ "Unstrat_NoGIS",
+#     ModNameDisplay %in% c("Unstrat (2GIS)") ~ "Unstrat_2GIS",
+#     ModNameDisplay %in% c("Unstrat (BaseModel)") ~ "Unstrat_BaseModel"
+#   )) %>% group_by(ModNameGrouped, Option) %>%
+#   mutate(FillCount=sum(Selected)) %>%
+#   ungroup() %>% mutate(
+#     FillTimes = case_when(
+#       # Fill == "FailedScreen" ~ "FailedScreen",
+#       FillCount == 0 & Eligible == TRUE ~ "Not Selected",
+#       # FillCount == 1 & Stratified == TRUE ~ "Selected - 1 Region",
+#       # FillCount == 1 & Stratified == FALSE ~ "Selected - Unstrat",
+#       # FillCount == 2 & Stratified == TRUE ~ "Selected - 2 Region",
+#       # FillCount == 3 & Stratified == TRUE ~ "Selected - 3 Region",
+#       # FillCount == 4 & Stratified == TRUE~ "Selected - All Region",
+#       Eligible == FALSE ~ "NotEligible"
+#     ),
+#     color_group = case_when(
+#       FillTimes == "Not Selected" ~ "not_selected_color",
+#       # FillTimes == "FailedScreen" ~ "failed_screen_color",
+#       # FillTimes == "Selected - 1 Region" ~ "light_color",
+#       # FillTimes == "Selected - 2 Region" ~ "med_color",
+#       # FillTimes == "Selected - 3 Region" ~ "red", #dark_color",
+#       FillTimes == "NotEligible" ~ "not_elig_color"
+#     )
+#   )
+# # #reorder for clarity
+# # predictor_matrix_grouped$ModNameStratGroup <- factor(predictor_matrix_grouped$ModNameGrouped,
+# #              levels = c("Unstrat_BaseModel","Unstrat_2GIS","Unstrat_NoGIS",
+# #                         "Strat_BaseModel","Strat_2GIS","Strat_NoGIS"))
+# 
+# ## order xaxis by group
+# predlist <- arrange(predictor_matrix_grouped %>%ungroup(),
+#                     desc(Option),
+#                     group_by = PredGroup)
+# tmp <- predictor_matrix_grouped  %>%
+#   ungroup() %>%
+#   group_by(PredGroup)
+# tmp <- tmp %>% arrange(PredGroup) %>%select(Option) %>% unique()
+# predictor_matrix_grouped$Option <- factor(predictor_matrix_grouped$Option,
+#                                           levels=unique(tmp$Option))
+# 
+# ######## HORIZONTAL
+# predictor_matrix_grouped$Option <- factor(predictor_matrix_grouped$Option,
+#                                           levels=unique(tmp$Option))
+# heatmap <- ggplot(
+#   data=predictor_matrix_grouped,
+#   mapping = aes(x=Option, y=ModNameGrouped)) +
+#   geom_tile(aes(fill=factor(color_group)), color="grey30") +
+#   scale_fill_manual(
+#     values=c(
+#       "not_elig_color"="white",
+#       "failed_screen_color"="grey",
+#       "not_selected_color"="gray50",
+#       "light_color"="lightblue1",
+#       "med_color"="cornflowerblue",
+#       "dark_color"="blue"
+#     ),
+#     labels=c(
+#       "not_elig_color"="Not Elgiible",
+#       "failed_screen_color"="Did not pass screening",
+#       "not_selected_color"="Not Selected",
+#       "light_color"="Selected - 1 Region",
+#       "med_color"="Selected - 2 Region",
+#       "dark_color"="Selected - 3 Region"
+#     ),
+#     name="Features" ) +
+#   # xlab("Indicators")+
+#   ylab("")+ labs(
+#     title="Which Indicators are Used in the Model(s)",
+#     fill="Candidates")+
+#   theme_bw() + xlab("")+
+#   theme(axis.text.x = element_text( angle = 90,#60,
+#                                     vjust = 1,
+#                                     hjust=1, size=7.5
+#                                     # colour = colors
+#   ))
+# heatmap
+# ggsave(heatmap, height=4.5, width =12, dpi=300,
+#        filename="output/models/heatmap_horizontal.png")
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+# 
+
+
+
+
+
+
+
+
+## add revisted flag
+# all_results_flat <- all_results_flat %>%
+#   mutate(revist = case_when(TotalVisits>1~TRUE, T~FALSE))
+
+# write.csv(all_results_flat%>%filter(
+#   ModNameStratGroup=="Unstrat_BaseModel"), "all_results_flat.csv")
+
+# ####### Precision
+# getmode <- function(v) {
+#   uniqv <- unique(v)
+#   uniqv[which.max(tabulate(match(v, uniqv)))]
+# }
+
+
+
+
+# #########PLOT EACH Region_detail
+# mod_summ_all_models <- all_results_flat %>% 
+#   filter(TotalVisits > 1) %>% 
+#   group_by(ModName, SiteCode, Dataset) %>%
+#   summarise(n_visits=length(SiteCode),
+#             mode=getmode(RF_Prediction_50),
+#             pct_mode_PvIvE=sum(RF_Prediction_50==mode)/n_visits
+#   ) %>%
+#   ungroup() %>%
+#   group_by(ModName, Dataset) %>%
+#   summarise(AvgPctMode=mean(pct_mode_PvIvE)) %>% 
+#   ungroup() 
 
 
 
@@ -1012,44 +988,44 @@ predictor_matrix_grouped$ModName <- factor(predictor_matrix_grouped$ModName,
 # ggsave(heatmap_all, height=6, width =12, dpi=300,
 #        filename=paste0(parent_path,"/heatmap_horizontal_all.png"))
 
-######## VERTICAL
-# ## Reorder for clarity
-predictor_matrix_grouped$Option <- factor(predictor_matrix_grouped$Option,
-                                          levels=rev(unique(tmp$Option)))
-
-
-predictor_matrix_grouped$ModName <- factor(predictor_matrix_grouped$ModName, 
-                                           levels = c("Unstrat_noGIS","NE_noGIS","SE_noGIS",
-                                                      "Unstrat_2GIS","NE_2GIS","SE_2GIS",
-                                                      "Unstrat_allGIS","NE_allGIS","SE_allGIS"))
-# predictor_matrix_grouped$ModName3 <- factor(predictor_matrix_grouped$ModName3,
-#                                             levels = c("Unstrat","Unstrat noGIS",
-#                                                        "Strat","Strat noGIS" ))
-# predictor_matrix_grouped$Option <- factor(predictor_matrix_grouped$Option, 
+# ######## VERTICAL
+# # ## Reorder for clarity
+# predictor_matrix_grouped$Option <- factor(predictor_matrix_grouped$Option,
 #                                           levels=rev(unique(tmp$Option)))
-heatmap_vertical <- ggplot(
-  data=predictor_matrix_grouped, 
-  mapping = aes(y=Option, x=ModName)) +
-  geom_tile(aes(fill=factor(Fill)), color="grey30") +
-  scale_fill_manual(
-    values=c(
-      "NotEligible"="white",
-      "NotSelected"="gray50",
-      # "FailedScreen"="grey",
-      "Selected"="blue"),
-    name="" ) +
-  ylab("")+ labs(
-    title="Which Indicators are Used in the Model(s)", 
-    fill="Candidates")+
-  theme_bw() + xlab("")+
-  theme(axis.text.x = element_text( angle =90,
-                                    vjust = 1,
-                                    hjust=1, size=9
-  ))
-ggsave(heatmap_vertical, height=12, width =7, dpi=900,
-       filename=paste0(parent_path,"/heatmap_vertical.png"))
-
-print(paste0("wrote to :", parent_path,"/heatmap_vertical.png"))
+# 
+# 
+# predictor_matrix_grouped$ModName <- factor(predictor_matrix_grouped$ModName, 
+#                                            levels = c("Unstrat_noGIS","NE_noGIS","SE_noGIS",
+#                                                       "Unstrat_2GIS","NE_2GIS","SE_2GIS",
+#                                                       "Unstrat_allGIS","NE_allGIS","SE_allGIS"))
+# # predictor_matrix_grouped$ModName3 <- factor(predictor_matrix_grouped$ModName3,
+# #                                             levels = c("Unstrat","Unstrat noGIS",
+# #                                                        "Strat","Strat noGIS" ))
+# # predictor_matrix_grouped$Option <- factor(predictor_matrix_grouped$Option, 
+# #                                           levels=rev(unique(tmp$Option)))
+# heatmap_vertical <- ggplot(
+#   data=predictor_matrix_grouped, 
+#   mapping = aes(y=Option, x=ModName)) +
+#   geom_tile(aes(fill=factor(Fill)), color="grey30") +
+#   scale_fill_manual(
+#     values=c(
+#       "NotEligible"="white",
+#       "NotSelected"="gray50",
+#       # "FailedScreen"="grey",
+#       "Selected"="blue"),
+#     name="" ) +
+#   ylab("")+ labs(
+#     title="Which Indicators are Used in the Model(s)", 
+#     fill="Candidates")+
+#   theme_bw() + xlab("")+
+#   theme(axis.text.x = element_text( angle =90,
+#                                     vjust = 1,
+#                                     hjust=1, size=9
+#   ))
+# ggsave(heatmap_vertical, height=12, width =7, dpi=900,
+#        filename=paste0(parent_path,"/heatmap_vertical.png"))
+# 
+# print(paste0("wrote to :", parent_path,"/heatmap_vertical.png"))
 
 
 # 
