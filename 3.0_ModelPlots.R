@@ -1,9 +1,14 @@
+######################## MODEL COMPARISON PLOTS ############################## 
+# The following section script gathers results from all preliminary model
+# versions created in the previous step and creates summary plots to compare
+# performance. Much of this script is repetitive (ie nearly the same figures,
+# with slight alternations/groupings to visualize differently).
+##############################################################################
 library(tidyverse)
 library(caret)
 library(dplyr)
 library(ggplot2)
 library(readxl)
-# library(rstudioapi)
 
 # Set your working directory relative to this script
 this_script_path <- rstudioapi::getActiveDocumentContext()$path
@@ -11,8 +16,6 @@ setwd(dirname(this_script_path))
 HOME_DIR <- getwd()
 print(paste("Your working dir has been set to:", HOME_DIR))
 
-## Helper function: If not chosen as a testing site, then keep in training set
-'%!in%' <- function(x,y)!('%in%'(x,y))
 
 ############################# COMBINE ALL RESULTS ##############################
 model_version <- "DraftFinalModels2" 
@@ -22,35 +25,75 @@ myfiles <- list.files(parent_path, full.names = T, all.files = TRUE,
 all_results_flat <- do.call(rbind, lapply(myfiles, read.csv))
 
 all_results_flat <- all_results_flat %>% 
-  mutate(ModNameStratGroup = case_when(
-    ModName %in% c(paste0(model_version,"_NoGIS_UNC"), paste0(model_version,"_NoGIS_S")) ~ "Strat_noGIS",
-    ModName %in% c(paste0(model_version,"_2GIS_UNC"), paste0(model_version,"_2GIS_S")) ~ "Strat_2GIS",
-    ModName %in% c(paste0(model_version,"_BaseModel_UNC"), paste0(model_version,"_BaseModel_S")) ~ "Strat_BaseModel",
-    ModName %in% c(paste0(model_version,"_BaseModel_Unstrat")) ~ "Unstrat_BaseModel",
-    ModName %in% c(paste0(model_version,"_NoGIS_Unstrat")) ~ "Unstrat_noGIS",
-    ModName %in% c(paste0(model_version,"_2GIS_Unstrat")) ~ "Unstrat_2GIS"
-  ))
-all_results_flat <- all_results_flat %>% 
-  mutate(ModNameDisplay = case_when(
-    ModName %in% c(paste0(model_version,"_NoGIS_UNC")) ~ "UNC (NoGIS)",
-    ModName %in% c(paste0(model_version,"_NoGIS_S")) ~ "S (NoGIS)",
-    ModName %in% c(paste0(model_version,"_NoGIS_Unstrat")) ~ "Unstrat (NoGIS)",
-    
-    ModName %in% c(paste0(model_version,"_2GIS_UNC")) ~ "UNC (2GIS)",
-    ModName %in% c(paste0(model_version,"_2GIS_S")) ~ "S (2GIS)",
-    ModName %in% c(paste0(model_version,"_2GIS_Unstrat")) ~ "Unstrat (2GIS)",
-    
-    ModName %in% c(paste0(model_version,"_BaseModel_UNC")) ~ "UNC (BaseModel)",
-    ModName %in% c(paste0(model_version,"_BaseModel_S")) ~ "S (BaseModel)",
-    ModName %in% c(paste0(model_version,"_BaseModel_Unstrat")) ~ "Unstrat (BaseModel)"
-  ))
-
+  mutate(
+    ModNameStratGroup = case_when( #Group by unstrat or strat
+      ModName %in% c(paste0(model_version,"_NoGIS_UNC"), paste0(model_version,"_NoGIS_S")) ~ "Strat_noGIS",
+      ModName %in% c(paste0(model_version,"_2GIS_UNC"), paste0(model_version,"_2GIS_S")) ~ "Strat_2GIS",
+      ModName %in% c(paste0(model_version,"_BaseModel_UNC"), paste0(model_version,"_BaseModel_S")) ~ "Strat_BaseModel",
+      ModName %in% c(paste0(model_version,"_BaseModel_Unstrat")) ~ "Unstrat_BaseModel",
+      ModName %in% c(paste0(model_version,"_NoGIS_Unstrat")) ~ "Unstrat_noGIS",
+      ModName %in% c(paste0(model_version,"_2GIS_Unstrat")) ~ "Unstrat_2GIS"
+    ),
+    ModNameDisplay = case_when( #Plot display names
+      ModName %in% c(paste0(model_version,"_NoGIS_UNC")) ~ "UNC (NoGIS)",
+      ModName %in% c(paste0(model_version,"_NoGIS_S")) ~ "S (NoGIS)",
+      ModName %in% c(paste0(model_version,"_NoGIS_Unstrat")) ~ "Unstrat (NoGIS)",
+      
+      ModName %in% c(paste0(model_version,"_2GIS_UNC")) ~ "UNC (2GIS)",
+      ModName %in% c(paste0(model_version,"_2GIS_S")) ~ "S (2GIS)",
+      ModName %in% c(paste0(model_version,"_2GIS_Unstrat")) ~ "Unstrat (2GIS)",
+      
+      ModName %in% c(paste0(model_version,"_BaseModel_UNC")) ~ "UNC (BaseModel)",
+      ModName %in% c(paste0(model_version,"_BaseModel_S")) ~ "S (BaseModel)",
+      ModName %in% c(paste0(model_version,"_BaseModel_Unstrat")) ~ "Unstrat (BaseModel)"
+    )
+  )
+# reorder models so that similar ones are together (helps in plotting)
 all_results_flat$ModNameDisplay <- factor(all_results_flat$ModNameDisplay ,
       levels = rev(c("Unstrat (BaseModel)","UNC (BaseModel)","S (BaseModel)",
                      "Unstrat (NoGIS)","UNC (NoGIS)","S (NoGIS)",
                      "Unstrat (2GIS)","UNC (2GIS)","S (2GIS)")))
 
-######## Summarize results by Strat Group
+
+############################# ADD PRECISION ##############################
+repeated_data_set <- all_results_flat %>% filter(TotalVisits > 1,
+                                                 Notes=="Original")
+
+# PvIvE_precision_df <- repeated_data_set %>%
+#   group_by(ModNameDisplay, SiteCode, RF_Prediction_50, TotalVisits) %>%
+#   tally(name="TimesClassified") %>%
+#   group_by(ModNameDisplay, SiteCode) %>%
+#   slice_max(TimesClassified, n=1, with_ties=F) %>%
+#   mutate(PvIvE_precision = (TimesClassified-1)/(TotalVisits-1))
+
+PvIvE_precision_df <- repeated_data_set %>%
+  group_by(ModNameDisplay, SiteCode, RF_Prediction_50, TotalVisits) %>%
+  tally(name="DifferentClassifications") %>%
+  group_by(ModNameDisplay, SiteCode) %>%
+  slice_max(DifferentClassifications, n=1, with_ties=F) %>%
+  mutate(PvIvE_precision = (DifferentClassifications)/(TotalVisits))
+  # mutate(PvIvE_precision = (TimesClassified-1)/(TotalVisits-1))
+
+write_csv(PvIvE_precision_df, file=paste0(HOME_DIR,"/PvIvE_precision_df.csv"))
+
+
+EvALI_precision_df <- repeated_data_set %>%
+  mutate(Classification_EvALI = case_when(
+        RF_Prediction_50=="E"~"E",
+        RF_Prediction_50 %in% c("P","I","ALI")~"ALI",
+        T~RF_Prediction_50)) %>%
+  group_by(ModNameDisplay, SiteCode, Classification_EvALI, TotalVisits) %>%
+  tally(name="DifferentClassifications") %>%
+  group_by(ModNameDisplay, SiteCode) %>%
+  slice_max(DifferentClassifications, n=1, with_ties=F) %>%
+  mutate(EvALI_precision = (DifferentClassifications)/(TotalVisits))
+  # mutate(EvALI_precision = (DifferentClassifications-1)/(TotalVisits-1))
+
+write_csv(EvALI_precision_df, file=paste0(HOME_DIR,"/EvALI_precision_df.csv"))
+
+
+
+############################# SUMMARIZE ALL ##############################
 results_summary <- all_results_flat %>% 
   group_by(ModNameStratGroup, Dataset, Stratification, Region_detail) %>%
   summarise(n_tests=length(SiteCode),
