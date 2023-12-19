@@ -75,8 +75,7 @@ PvIvE_precision_df <- repeated_data_set %>%
   tally(name="DifferentClassifications") %>%
   group_by(ModNameDisplay, SiteCode) %>%
   slice_max(DifferentClassifications, n=1, with_ties=F) %>%
-  mutate(PvIvE_precision = (DifferentClassifications)/(TotalVisits))
-  # mutate(PvIvE_precision = (TimesClassified-1)/(TotalVisits-1))
+  mutate(PvIvE_precision = (DifferentClassifications-1)/(TotalVisits-1))
 
 write_csv(PvIvE_precision_df, file=paste0(HOME_DIR,"/output/models/PvIvE_precision_df.csv"))
 
@@ -90,8 +89,7 @@ EvALI_precision_df <- repeated_data_set %>%
   tally(name="DifferentClassifications") %>%
   group_by(ModNameDisplay, SiteCode) %>%
   slice_max(DifferentClassifications, n=1, with_ties=F) %>%
-  mutate(EvALI_precision = (DifferentClassifications)/(TotalVisits))
-  # mutate(EvALI_precision = (DifferentClassifications-1)/(TotalVisits-1))
+  mutate(EvALI_precision = (DifferentClassifications-1)/(TotalVisits-1))
 
 write_csv(EvALI_precision_df, file=paste0(HOME_DIR,"/output/models/EvALI_precision_df.csv"))
 

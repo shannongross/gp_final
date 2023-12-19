@@ -54,12 +54,13 @@ df_aug_train <- df_input %>% filter(Dataset=="Training")
 df_input <- df_input %>% mutate(
     BankWidth_10 = case_when(BankWidthMean<10~0, T~1),
     TotalAbund_8 = case_when(TotalAbundance<8~0, T~1),
+    ## Also make group for =0
     TotalAbund_8_24 = case_when(TotalAbundance<8~0,  #same as TotalAbund_8
         ((TotalAbundance>=8) & (TotalAbundance<=24)~1),
           TotalAbundance>=24~2),
     UplandRooted_PA = case_when(UplandRootedPlants_score<3~0, T~1),
-    ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),
-    hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1),
+    ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),## Also make group for =0
+    hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1),## Also make group for =0
     DiffInVeg_1.5 = case_when(DifferencesInVegetation_score<3~0, T~1)
     # PctShad_20 = case_when(PctShading<.2~0, T~1),
     # PctShad_20_60= case_when(PctShading<.2~0, 
@@ -70,25 +71,6 @@ new_preds_list <- c("BankWidth_10","TotalAbund_8","TotalAbund_8_24",
                     "UplandRooted_PA","ephISAabund_PA","hydrophytes_2",
                     "DiffInVeg_1.5")
 
-# #Helper function to calculate EvALI accuracy
-# EvALI_accuracy <- function(rf) {
-#   conmat=confusionMatrix(rf$predicted, rf$y)
-#   e_correct = conmat$table[1,1]
-#   ALI_correct= conmat$table[2:3,2:3] %>% sum()
-#   total = conmat$table %>% sum()
-#   (e_correct+ALI_correct)/total
-# }
-# #Compare accuracy of two models
-# compare_performance<-function(OldMod, NewMod) {
-#   tibble(Measure=c("Accuracy","Kappa","EvALI"),
-#          OldModel=c(confusionMatrix(OldMod$predicted, OldMod$y)$overall[["Accuracy"]],
-#                     confusionMatrix(OldMod$predicted, OldMod$y)$overall[["Kappa"]],
-#                     EvALI_accuracy(OldMod)),
-#          ThisModel=c(confusionMatrix(NewMod$predicted, NewMod$y)$overall[["Accuracy"]],
-#                      confusionMatrix(NewMod$predicted, NewMod$y)$overall[["Kappa"]],
-#                      EvALI_accuracy(NewMod))) %>%
-#     mutate(Ratio = ThisModel/OldModel)
-# }
 #plotting function
 ggsummaryPlot <- function(df){
   start<-0
@@ -96,12 +78,8 @@ ggsummaryPlot <- function(df){
   ggplot(df %>%
            select(Step, n_varz, 
                   pctCorrectPvIvE, pctCorrect_EvALI
-                  # Accuracy,
-                  # pctCorrect_IvEdry,
-                  # EvALI
                   ) %>%
            pivot_longer(cols=c(
-                # pctCorrect_IvEdry,
                 pctCorrectPvIvE, 
                 pctCorrect_EvALI)), 
          aes(x=Step-start, y=value, label=round(value,2)))+  
@@ -127,7 +105,6 @@ ggsummaryPlot <- function(df){
                shape=21)+
     scale_color_brewer(palette="Set1")+
     coord_cartesian(ylim=c(0,1))+
-#     scale_x_continuous(breaks=c(0,4), labels=c(0,4))+
     scale_x_continuous(breaks=0:nrow(df), labels=0:nrow(df)+start) + 
     labs(title=paste("Refinement of",chosen_model,"Base Model"), 
             subtitle = "Performance on Test Dataset",
@@ -217,7 +194,7 @@ test_results <- tibble(df_TESTING[unique(c(
   rename(RF_Prediction_Majority="pred") %>%
   bind_cols(
     predict(thismod,
-          newdata=new_data, #X_test[opt_preds], #Generate predictions
+          newdata=new_data,  #Generate predictions
           type="prob") %>%
     as_tibble()
     )
