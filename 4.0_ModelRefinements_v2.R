@@ -54,23 +54,40 @@ df_aug_train <- df_input %>% filter(Dataset=="Training")
 # CREATE BINS/MODIFY EXISTING
 ###################################################################################
 df_input <- df_input %>% mutate(
-    BankWidth_10 = case_when(BankWidthMean<10~0, T~1),
-    TotalAbund_8 = case_when(TotalAbundance<8~0, T~1),
-    TotalAbund_8_24 = case_when(TotalAbundance<8~0,  #same as TotalAbund_8
-        ((TotalAbundance>=8) & (TotalAbundance<=24)~1),
-          TotalAbundance>=24~2),
-    UplandRooted_PA = case_when(UplandRootedPlants_score<3~0, T~1),
-    ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),
-    hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1),
-    DiffInVeg_1.5 = case_when(DifferencesInVegetation_score<3~0, T~1)
-    # PctShad_20 = case_when(PctShading<.2~0, T~1),
-    # PctShad_20_60= case_when(PctShading<.2~0, 
-    #      ((PctShading>=.2) & (PctShading<=.6)~1),
-    #      PctShading>=.6~3)
-  )  
+  BankWidth_10 = case_when(BankWidthMean<10~0, T~1),
+  TotalAbund_8 = case_when(TotalAbundance<8~0, T~1),
+  TotalAbund_8_24 = case_when(TotalAbundance<8~0,  #same as TotalAbund_8
+                              ((TotalAbundance>=8) & (TotalAbundance<=24)~1),
+                              TotalAbundance>=24~2),
+  TotalAbund_0_8_24 = case_when(TotalAbundance==0~0, 
+                                ((TotalAbundance>0) & (TotalAbundance<=8)~1),
+                                ((TotalAbundance>=8) & (TotalAbundance<=24)~2),
+                                TotalAbundance>=24~3),
+  TotalAbund_0_10 = case_when(TotalAbundance==0~0, 
+                              ((TotalAbundance>0) & (TotalAbundance<=10)~1),
+                              TotalAbundance>=10~2),
+  UplandRooted_PA = case_when(UplandRootedPlants_score<3~0, T~1),
+  ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),
+  ephISAabund_0_2 = case_when(ephinteph_ISA_abundance==0~0, 
+                              ((ephinteph_ISA_abundance>0) & (ephinteph_ISA_abundance<=2)~1),
+                              ephinteph_ISA_abundance>=2~2),
+  hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1),
+  hydrophytes_0_2 = case_when(hydrophytes_present==0~0, 
+                              ((hydrophytes_present>0) & (hydrophytes_present<=3)~1),
+                              hydrophytes_present>=3~2),
+  DiffInVeg_1.5 = case_when(DifferencesInVegetation_score<3~0, T~1)
+  # PctShad_20 = case_when(PctShading<.2~0, T~1),
+  # PctShad_20_60= case_when(PctShading<.2~0, 
+  #      ((PctShading>=.2) & (PctShading<=.6)~1),
+  #      PctShading>=.6~3)
+)  
 new_preds_list <- c("BankWidth_10","TotalAbund_8","TotalAbund_8_24",
-                    "UplandRooted_PA","ephISAabund_PA","hydrophytes_2",
+                    "TotalAbund_0_8_24","TotalAbund_0_10",
+                    "UplandRooted_PA",
+                    "ephISAabund_PA", "ephISAabund_0_2",
+                    "hydrophytes_2", "hydrophytes_0_2",
                     "DiffInVeg_1.5")
+
 
 #plotting function
 ggsummaryPlot <- function(df){
@@ -513,12 +530,14 @@ this_model_vars <- setdiff(model_vars_step0,
                              "UplandRootedPlants_score",
                              "ephinteph_ISA_abundance",
                              "hydrophytes_present",
-                             "Strata")
+                             "Strata",
+                             "TotalAbundance")
 )
 this_model_vars <- c(this_model_vars,
                      "ephISAabund_PA",
                      "UplandRooted_PA",
-                     "hydrophytes_2")
+                     "hydrophytes_2",
+                     "TotalAbund_0_10")
 
 ModRefineSummaryTEST1 <- make_refinements(thisstep=8,
                   chosen_model=chosen_model,
@@ -536,12 +555,14 @@ this_model_vars <- setdiff(model_vars_step0,
                              "ephinteph_ISA_abundance",
                              "hydrophytes_present",
                              "Strata",
-                             "Slope")
+                             "Slope",
+                             "TotalAbundance")
 )
 this_model_vars <- c(this_model_vars,
                      "ephISAabund_PA",
                      "UplandRooted_PA",
-                     "hydrophytes_2")
+                     "hydrophytes_2",
+                     "TotalAbund_0_10")
 
 ModRefineSummaryTEST1 <- make_refinements(thisstep=9,
                     chosen_model=chosen_model,
@@ -559,13 +580,15 @@ this_model_vars <- setdiff(model_vars_step0,
                              "hydrophytes_present",
                              "Strata",
                              "Slope",
-                             "DifferencesInVegetation_score")
+                             "DifferencesInVegetation_score",
+                             "TotalAbundance")
 )
 this_model_vars <- c(this_model_vars,
                      "ephISAabund_PA",
                      "UplandRooted_PA",
                      "hydrophytes_2",
-                     "DiffInVeg_1.5")
+                     "DiffInVeg_1.5",
+                     "TotalAbund_0_10")
 
 ModRefineSummaryTEST1 <- make_refinements(thisstep=10,
                     chosen_model=chosen_model,
@@ -601,12 +624,14 @@ this_model_vars <- setdiff(model_vars_step0,
                              "UplandRootedPlants_score",
                              "ephinteph_ISA_abundance",
                              "Slope",
-                             "BankWidthMean")
+                             "BankWidthMean",
+                             "TotalAbundance")
 )
 this_model_vars <- c(this_model_vars,
-                     "ephISAabund_PA",
+                     "ephISAabund_0_2",
                      "UplandRooted_PA",
-                     "BankWidth_10")
+                     "BankWidth_10",
+                     "TotalAbund_0_10")
 
 ModRefineSummaryTEST1 <- make_refinements(thisstep=12,
                     chosen_model=chosen_model,
@@ -614,3 +639,53 @@ ModRefineSummaryTEST1 <- make_refinements(thisstep=12,
                     field_model_vars=this_model_vars
 )
 
+##################################################################
+#     V13 -->
+##################################################################
+this_model_vars <- setdiff(model_vars_step0,
+                           c(
+                             "ephinteph_ISA_abundance",
+                             "Strata")
+                              )
+this_model_vars <- c(this_model_vars,
+                     "ephISAabund_0_2")
+
+ModRefineSummaryTEST1 <- make_refinements(thisstep=13,
+                                          chosen_model=chosen_model,
+                                          descript=paste(sort(this_model_vars), collapse="\n"),
+                                          field_model_vars=this_model_vars
+)
+##################################################################
+#     V14 -->
+##################################################################
+this_model_vars <- setdiff(model_vars_step0,
+                           c(
+                             "TotalAbundance",
+                             "Strata")
+)
+this_model_vars <- c(this_model_vars,
+                     "TotalAbund_0_8_24")
+
+ModRefineSummaryTEST1 <- make_refinements(thisstep=14,
+                                          chosen_model=chosen_model,
+                                          descript=paste(sort(this_model_vars), collapse="\n"),
+                                          field_model_vars=this_model_vars
+)
+
+##################################################################
+#     V15 -->
+##################################################################
+this_model_vars <- setdiff(model_vars_step0,
+                           c("ephinteph_ISA_abundance",
+                             "TotalAbundance",
+                             "Strata")
+)
+this_model_vars <- c(this_model_vars,
+                     "ephISAabund_0_2",
+                     "TotalAbund_0_10")
+
+ModRefineSummaryTEST1 <- make_refinements(thisstep=15,
+                                          chosen_model=chosen_model,
+                                          descript=paste(sort(this_model_vars), collapse="\n"),
+                                          field_model_vars=this_model_vars
+)

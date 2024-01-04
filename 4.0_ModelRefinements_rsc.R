@@ -92,11 +92,12 @@ ggsummaryPlot <- function(df){
   text.size <- 2.5
   ggplot(df %>%
            select(Step, n_varz, 
-                  pctCorrectPvIvE, pctCorrect_EvALI
+                  pctCorrectPvIvE, pctCorrect_EvALI, pctCorrect_EvIdry
                   ) %>%
            pivot_longer(cols=c(
                 pctCorrectPvIvE, 
-                pctCorrect_EvALI)), 
+                pctCorrect_EvALI,
+                pctCorrect_EvIdry)), 
          aes(x=Step-start, y=value, label=round(value,2)))+  
     geom_hline(data = . %>% filter(Step==start), 
                aes(color=name, yintercept=value), 
@@ -105,13 +106,13 @@ ggsummaryPlot <- function(df){
     geom_point(aes(color=name), size=2)+
     geom_text(hjust=0.02, vjust=0.02, size= text.size)+ 
     geom_label_repel(data=df %>%
-                  select(Step, Description, pctCorrectPvIvE,) %>%
-                  pivot_longer(cols=c(pctCorrectPvIvE)),
-                  aes(x = df$Step-start,
-                  y = df$pctCorrectPvIvE), 
-                  label = df$Description,
-                  nudge_y = -(df$pctCorrectPvIvE/2),
-                  size=1.8
+          select(Step, Description, pctCorrectPvIvE) %>%
+          pivot_longer(cols=c(pctCorrectPvIvE)),
+          aes(x = df$Step-start,
+          y = df$pctCorrectPvIvE), 
+          label = df$Description,
+          nudge_y = -(df$pctCorrectPvIvE/2),
+          size=1.8
     ) +
     geom_point(data=. %>%
                  group_by(name) %>%
@@ -286,7 +287,9 @@ refined_stats <- refined_results %>%
             pctCorrectPvIvE=n_correct_PvIvE/n_tests,
             n_correct_EvALI=sum(EvALI_correct==TRUE),
             pctCorrect_EvALI=n_correct_EvALI/n_tests,
-            n_dry=sum(Wet==FALSE)
+            n_correct_EvIdry=sum(EvIdry_correct==TRUE),
+            n_dry=sum(Wet==FALSE),
+            pctCorrect_EvIdry=n_correct_EvIdry/n_dry
   )
 print(head(refined_stats))
 write_csv(refined_stats, file=paste0(this_dir,"/refined_stats.csv"))
@@ -302,8 +305,8 @@ if (thisstep==0){
           n_varz= thismod$importance %>% nrow(),
           varz=list(field_model_vars),
           pctCorrectPvIvE=refined_stats$pctCorrectPvIvE,
-          pctCorrect_EvALI=refined_stats$pctCorrect_EvALI
-          # pctCorrect_IvEdry=summary_stats$pctCorrect_IvEdry
+          pctCorrect_EvALI=refined_stats$pctCorrect_EvALI,
+          pctCorrect_EvIdry=refined_stats$pctCorrect_EvIdry
           )
     } else {
        ModRefineSummaryTEST1 <- ModRefineSummaryTEST1 %>% bind_rows(
@@ -312,8 +315,8 @@ if (thisstep==0){
             n_varz= thismod$importance %>% nrow(),
             varz=list(field_model_vars),
             pctCorrectPvIvE=refined_stats$pctCorrectPvIvE,
-            pctCorrect_EvALI=refined_stats$pctCorrect_EvALI
-            # pctCorrect_IvEdry=summary_stats$pctCorrect_IvEdry
+            pctCorrect_EvALI=refined_stats$pctCorrect_EvALI,
+            pctCorrect_EvIdry=refined_stats$pctCorrect_EvIdry
             )
       )
 }
@@ -460,7 +463,9 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
                  pctCorrectPvIvE=n_correct_PvIvE/n_tests,
                  n_correct_EvALI=sum(EvALI_correct==TRUE),
                  pctCorrect_EvALI=n_correct_EvALI/n_tests,
-                 n_dry=sum(Wet==FALSE)
+                 n_correct_EvIdry=sum(EvIdry_correct==TRUE),
+                 n_dry=sum(Wet==FALSE),
+                 pctCorrect_EvIdry=n_correct_EvIdry/n_dry
        )
      print(head(refined_stats))
      write_csv(refined_stats, file=paste0(this_dir,"/refined_stats.csv"))
@@ -477,8 +482,8 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
                                        n_varz= thismod$importance %>% nrow(),
                                        varz=list(field_model_vars),
                                        pctCorrectPvIvE=refined_stats$pctCorrectPvIvE,
-                                       pctCorrect_EvALI=refined_stats$pctCorrect_EvALI
-                                       # pctCorrect_IvEdry=summary_stats$pctCorrect_IvEdry
+                                       pctCorrect_EvALI=refined_stats$pctCorrect_EvALI,
+                                       pctCorrect_EvIdry=refined_stats$pctCorrect_EvIdry
        )
      } else {
        ModRefineSummaryTEST1 <- ModRefineSummaryTEST1 %>% bind_rows(
@@ -487,8 +492,8 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
                 n_varz= thismod$importance %>% nrow(),
                 varz=list(field_model_vars),
                 pctCorrectPvIvE=refined_stats$pctCorrectPvIvE,
-                pctCorrect_EvALI=refined_stats$pctCorrect_EvALI
-                # pctCorrect_IvEdry=summary_stats$pctCorrect_IvEdry
+                pctCorrect_EvALI=refined_stats$pctCorrect_EvALI,
+                pctCorrect_EvIdry=refined_stats$pctCorrect_EvIdry
          )
        )
      }
@@ -515,64 +520,103 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
 
 }
 ##################################################################
-#      V1 --> 
+#      V1 -->  formerly v5
 ##################################################################
 this_model_vars <- setdiff(model_vars_step0,
-                            c("BankWidthMean")
-                            )
-this_model_vars <- c(this_model_vars, "BankWidth_10")
+                           c("PctShading",
+                             "Strata",
+                             "UplandRootedPlants_score")
+)
+this_model_vars <- c(this_model_vars,"UplandRooted_PA")
 
-ModRefineSummaryTEST1 <- make_refinements(thisstep=1, 
-                    chosen_model=chosen_model, 
-                    descript=paste(sort(this_model_vars), collapse="\n"),
-                    field_model_vars=this_model_vars
+ModRefineSummaryTEST1 <- make_refinements(thisstep=1,
+            chosen_model=chosen_model,
+            descript=paste(sort(this_model_vars), collapse="\n"),
+            field_model_vars=this_model_vars
+)
+##################################################################
+#    V2 --> formerly v7
+##################################################################
+this_model_vars <- setdiff(model_vars_step0,
+                           c("PctShading",
+                             "UplandRootedPlants_score",
+                             "ephinteph_ISA_abundance",
+                             "Strata",
+                             "hydrophytes_present")
+)
+this_model_vars <- c(this_model_vars,
+                     "ephISAabund_PA",
+                     "UplandRooted_PA",
+                     "hydrophytes_2")
+
+ModRefineSummaryTEST1 <- make_refinements(thisstep=2,
+            chosen_model=chosen_model,
+            # descript=description,
+            descript=paste(sort(this_model_vars), collapse="\n"),
+            field_model_vars=this_model_vars
 )
 
 ##################################################################
-#    V2 -->
+#    V3 --> formerly v8
 ##################################################################
 this_model_vars <- setdiff(model_vars_step0,
-                            c("TotalAbundance")
-                            )
-this_model_vars <- c(this_model_vars, "TotalAbund_8")
-
-ModRefineSummaryTEST1 <-make_refinements(thisstep=2,
-                                         chosen_model=chosen_model, 
-                    descript=paste(sort(this_model_vars), collapse="\n"),
-                    field_model_vars=this_model_vars
+                           c("PctShading",
+                             "UplandRootedPlants_score",
+                             "ephinteph_ISA_abundance",
+                             "hydrophytes_present",
+                             "Strata",
+                             "TotalAbundance")
 )
-##################################################################
-#    V3 -->
-##################################################################
-this_model_vars <- setdiff(model_vars_step0,
-                            c("TotalAbundance")
-                            )
-# this_model_vars <- c(this_model_vars,"TotalAbund_8_24") ##same as TotalAbund_8
+this_model_vars <- c(this_model_vars,
+                     "ephISAabund_PA",
+                     "UplandRooted_PA",
+                     "hydrophytes_2",
+                     "TotalAbund_0_10")
 
 ModRefineSummaryTEST1 <- make_refinements(thisstep=3,
-                    chosen_model=chosen_model, 
-                    descript=paste(sort(this_model_vars), collapse="\n"),
-                    field_model_vars=this_model_vars
+              chosen_model=chosen_model,
+              descript=paste(sort(this_model_vars), collapse="\n"),
+              field_model_vars=this_model_vars
 )
 ##################################################################
-#    V4 -->
+#    V4 --> formerly v9
 ##################################################################
 this_model_vars <- setdiff(model_vars_step0,
-                            c( "PctShading"))
+                           c("PctShading",
+                             "UplandRootedPlants_score",
+                             "ephinteph_ISA_abundance",
+                             "hydrophytes_present",
+                             "Strata",
+                             "Slope",
+                             "TotalAbundance")
+)
+this_model_vars <- c(this_model_vars,
+                     "ephISAabund_PA",
+                     "UplandRooted_PA",
+                     "hydrophytes_2",
+                     "TotalAbund_0_10")
 
 ModRefineSummaryTEST1 <- make_refinements(thisstep=4,
-                    chosen_model=chosen_model,
-                    descript=paste(sort(this_model_vars), collapse="\n"),
-                    field_model_vars=this_model_vars
+                chosen_model=chosen_model,
+                descript=paste(sort(this_model_vars), collapse="\n"),
+                field_model_vars=this_model_vars
 )
 ##################################################################
-#     V5 -->
+#     V5 --> same as former v9 except drop ephISAabund_PA 
 ##################################################################
 this_model_vars <- setdiff(model_vars_step0,
-                            c("PctShading",
-                              "UplandRootedPlants_score")
-                            )
-this_model_vars <- c(this_model_vars,"UplandRooted_PA")
+                           c("PctShading",
+                             "UplandRootedPlants_score",
+                             "ephinteph_ISA_abundance",
+                             "hydrophytes_present",
+                             "Strata",
+                             "Slope",
+                             "TotalAbundance")
+)
+this_model_vars <- c(this_model_vars,
+                     "UplandRooted_PA",
+                     "hydrophytes_2",
+                     "TotalAbund_0_10")
 
 ModRefineSummaryTEST1 <- make_refinements(thisstep=5,
                     chosen_model=chosen_model,
@@ -580,15 +624,21 @@ ModRefineSummaryTEST1 <- make_refinements(thisstep=5,
                     field_model_vars=this_model_vars
 )
 ##################################################################
-#     V6 -->
+#     V6 --> same as former v9 except drop TotalAbund_0_10
 ##################################################################
 this_model_vars <- setdiff(model_vars_step0,
                            c("PctShading",
                              "UplandRootedPlants_score",
-                             "ephinteph_ISA_abundance")
+                             "ephinteph_ISA_abundance",
+                             "hydrophytes_present",
+                             "Strata",
+                             "Slope",
+                             "TotalAbundance")
 )
-this_model_vars <- c(this_model_vars,"ephISAabund_PA","UplandRooted_PA")
-
+this_model_vars <- c(this_model_vars,
+                     "UplandRooted_PA",
+                     "hydrophytes_2",
+                     "ephISAabund_PA")
 ModRefineSummaryTEST1 <- make_refinements(thisstep=6,
                     chosen_model=chosen_model,
                     descript=paste(sort(this_model_vars), collapse="\n"),
@@ -596,19 +646,25 @@ ModRefineSummaryTEST1 <- make_refinements(thisstep=6,
 )
 
 ##################################################################
-#     V7 -->
+#     V7 --> same as former v9 except drop ephISAabund_PA and TotalAbund_0_10
 ##################################################################
 # description<-paste0("REFINED MODEL:\nBankWidthMean\nBMI_score_alt4\nDRNAREA_0.5bin\nNaturalValley\nPctShading\nppt.8910\nSlope\nUplandRootedPlants")
 this_model_vars <- setdiff(model_vars_step0,
                            c("PctShading",
                              "UplandRootedPlants_score",
                              "ephinteph_ISA_abundance",
-                             "hydrophytes_present")
+                             "hydrophytes_present",
+                             "Strata",
+                             "Slope",
+                             "BankWidthMean",
+                             "TotalAbundance")
 )
 this_model_vars <- c(this_model_vars,
-                           "ephISAabund_PA",
-                           "UplandRooted_PA",
-                           "hydrophytes_2")
+                            "UplandRooted_PA",
+                            "hydrophytes_2",
+                            "ephISAabund_PA",
+                            "TotalAbund_0_10",
+                     "BankWidth_10")
 
 ModRefineSummaryTEST1 <- make_refinements(thisstep=7,
                     chosen_model=chosen_model,
