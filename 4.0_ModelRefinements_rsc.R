@@ -1,6 +1,7 @@
 ######################################################################
 # This script shows a subset of manual refinements for the Great Plains
-# Unstrat No GIS model
+# Unstrat No GIS model that were presented to the Regional Steering Committee
+#
 ######################################################################
 library(ggrepel)
 library(tidyverse)
@@ -74,10 +75,6 @@ df_input <- df_input %>% mutate(
                               ((hydrophytes_present>0) & (hydrophytes_present<=3)~1),
                               hydrophytes_present>=3~2),
     DiffInVeg_1.5 = case_when(DifferencesInVegetation_score<3~0, T~1)
-    # PctShad_20 = case_when(PctShading<.2~0, T~1),
-    # PctShad_20_60= case_when(PctShading<.2~0, 
-    #      ((PctShading>=.2) & (PctShading<=.6)~1),
-    #      PctShading>=.6~3)
   )  
 new_preds_list <- c("BankWidth_10","TotalAbund_8","TotalAbund_8_24",
                     "TotalAbund_0_8_24","TotalAbund_0_10",

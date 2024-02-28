@@ -15,6 +15,8 @@ library(grid)
 library(gridExtra)
 library(stringr)
 library(readxl)
+library(reshape2)
+
 
 model_version <- "DraftFinalModels2"
 chosen_model <- "NoGIS_Unstrat"
@@ -30,7 +32,8 @@ print(paste("Your working dir has been set to:", HOME_DIR))
 input_clean_dir <- paste0(HOME_DIR, "/input/processed")
 if (!dir.exists(input_clean_dir)){dir.create(input_clean_dir)}
 
-parent_path <- paste0(HOME_DIR, "/output/models/", model_version, "/", chosen_model)
+parent_path <- paste0(HOME_DIR, "/output/models/", model_version, "/",
+                      chosen_model)
 
 out_dir <- paste0(parent_path, "/SI")
 if (!dir.exists(out_dir)){dir.create(out_dir)}
@@ -91,7 +94,7 @@ SI_variables = c(
   # "SI_Fish_PA", #Drop: Not identified by PDT as a potential single indicator
   "SI_Fish_NoMosq_PA",
   "SI_BMI_PA",
-  "SI_BMI_10", #TODO
+  "SI_BMI_10", 
   "SI_EPT_PA",
   "SI_EPT_10",
   "SI_BMI_Peren_PA",     #Only for AW, WM, GP models
@@ -109,559 +112,288 @@ SI_variables = c(
 si_summary <- df_si  %>% 
   mutate(
     sum_SI = rowSums(across(SI_variables)),
-    Corrections=case_when(                                      #TODO: CHECK LTP
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & sum_SI>=1)~1, T~0),
-    Misses=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & sum_SI==0)~1, T~0),
-    Mistakes=case_when(
-      (Class %in% c("E") & RF_Prediction_50  %in% c("E") & sum_SI>=1)~1, T~0),
-    
+
     Corrections_SI_Fish_NoMosq_PA=case_when(                                    
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_Fish_NoMosq_PA>=1)~1, T~0),
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_Fish_NoMosq_PA>=1)~1, T~0),
+    Corrections_SI_BMI_PA=case_when(                                     
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_BMI_PA>=1)~1, T~0),
+    Corrections_SI_BMI_10=case_when(                                    
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_BMI_10>=1)~1, T~0),
+    Corrections_SI_EPT_PA=case_when(                                    
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_EPT_PA>=1)~1, T~0),
+    Corrections_SI_EPT_10=case_when(                                   
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_EPT_10>=1)~1, T~0),
+    Corrections_SI_BMI_Peren_PA=case_when(                                   
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_BMI_Peren_PA>=1)~1, T~0),
+    Corrections_SI_BMI_Peren_10=case_when(                                   
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_BMI_Peren_10>=1)~1, T~0),
+    Corrections_SI_Algae_10pct=case_when(                               
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_Algae_10pct>=1)~1, T~0),
+    Corrections_SI_HydricSoil_PA=case_when(                                    
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_HydricSoil_PA>=1)~1, T~0),
+    Corrections_SI_IOFB_PA=case_when(                                 
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_IOFB_PA>=1)~1, T~0),
+    Corrections_SI_Hydrophytes_PA=case_when(                                   
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_Hydrophytes_PA>=1)~1, T~0),
+    Corrections_SI_Vertebrates_PA=case_when(                              
+      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI","LTP") & SI_Vertebrates_PA>=1)~1, T~0),
+    
     Misses_SI_Fish_NoMosq_PA=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_Fish_NoMosq_PA==0)~1, T~0),
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_Fish_NoMosq_PA==0)~1, T~0),
+    Misses_SI_BMI_PA=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_BMI_PA==0)~1, T~0),
+    Misses_SI_BMI_10=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_BMI_10==0)~1, T~0),
+    Misses_SI_EPT_PA=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_EPT_PA==0)~1, T~0),
+    Misses_SI_EPT_10=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_EPT_10==0)~1, T~0),
+    Misses_SI_BMI_Peren_PA=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_BMI_Peren_PA==0)~1, T~0),
+    Misses_SI_BMI_Peren_10=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_BMI_Peren_10==0)~1, T~0),
+    Misses_SI_Algae_10pct=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_Algae_10pct==0)~1, T~0),
+    Misses_SI_HydricSoil_PA=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_HydricSoil_PA==0)~1, T~0), 
+    Misses_SI_IOFB_PA=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_IOFB_PA==0)~1, T~0), 
+    Misses_SI_Hydrophytes_PA=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_Hydrophytes_PA==0)~1, T~0),
+    Misses_SI_Vertebrates_PA=case_when(
+      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI","LTP") & SI_Vertebrates_PA==0)~1, T~0),
+    
     Mistakes_SI_Fish_NoMosq_PA=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_Fish_NoMosq_PA>=1)~1, T~0),
-    
-    Corrections_SI_BMI_PA=case_when(                                     
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_BMI_PA>=1)~1, T~0),
-    Misses_SI_BMI_PA=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_BMI_PA==0)~1, T~0),
     Mistakes_SI_BMI_PA=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_BMI_PA>=1)~1, T~0),
-    
-    Corrections_SI_BMI_10=case_when(                                    
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_BMI_10>=1)~1, T~0),
-    Misses_SI_BMI_10=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_BMI_10==0)~1, T~0),
     Mistakes_SI_BMI_10=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_BMI_10>=1)~1, T~0),
-    
-    Corrections_SI_EPT_PA=case_when(                                    
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_EPT_PA>=1)~1, T~0),
-    Misses_SI_EPT_PA=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_EPT_PA==0)~1, T~0),
     Mistakes_SI_EPT_PA=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_EPT_PA>=1)~1, T~0),
-    
-    Corrections_SI_EPT_10=case_when(                                   
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_EPT_10>=1)~1, T~0),
-    Misses_SI_EPT_10=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_EPT_10==0)~1, T~0),
     Mistakes_SI_EPT_10=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_EPT_10>=1)~1, T~0),
-    
-    Corrections_SI_BMI_Peren_PA=case_when(                                   
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_BMI_Peren_PA>=1)~1, T~0),
-    Misses_SI_BMI_Peren_PA=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_BMI_Peren_PA==0)~1, T~0),
     Mistakes_SI_BMI_Peren_PA=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_BMI_Peren_PA>=1)~1, T~0),
-    
-    Corrections_SI_BMI_Peren_10=case_when(                                   
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_BMI_Peren_10>=1)~1, T~0),
-    Misses_SI_BMI_Peren_10=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_BMI_Peren_10==0)~1, T~0),
     Mistakes_SI_BMI_Peren_10=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_BMI_Peren_10>=1)~1, T~0),
-
-    Corrections_SI_Algae_10pct=case_when(                               
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_Algae_10pct>=1)~1, T~0),
-    Misses_SI_Algae_10pct=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_Algae_10pct==0)~1, T~0),
     Mistakes_SI_Algae_10pct=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_Algae_10pct>=1)~1, T~0),
-    
-    Corrections_SI_HydricSoil_PA=case_when(                                    
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_HydricSoil_PA>=1)~1, T~0),
-    Misses_SI_HydricSoil_PA=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_HydricSoil_PA==0)~1, T~0),
     Mistakes_SI_HydricSoil_PA=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_HydricSoil_PA>=1)~1, T~0),
-    
-    Corrections_SI_IOFB_PA=case_when(                                 
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_IOFB_PA>=1)~1, T~0),
-    Misses_SI_IOFB_PA=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_IOFB_PA==0)~1, T~0),
     Mistakes_SI_IOFB_PA=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_IOFB_PA>=1)~1, T~0),
-    
-    Corrections_SI_Hydrophytes_PA=case_when(                                   
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_Hydrophytes_PA>=1)~1, T~0),
-    Misses_SI_Hydrophytes_PA=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_Hydrophytes_PA==0)~1, T~0),
     Mistakes_SI_Hydrophytes_PA=case_when(
       (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_Hydrophytes_PA>=1)~1, T~0),
-    
-    Corrections_SI_Vertebrates_PA=case_when(                              
-      (Class %in% c("I","P") & RF_Prediction_50  %in% c("E","NMI") & SI_Vertebrates_PA>=1)~1, T~0),
-    Misses_SI_Vertebrates_PA=case_when(
-      (Class %in% c("I","P") & RF_Prediction_50 %in% c("E","NMI") & SI_Vertebrates_PA==0)~1, T~0),
     Mistakes_SI_Vertebrates_PA=case_when(
-      (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_Vertebrates_PA>=1)~1, T~0),
-    
-    # RF_Prediction_50_SI=case_when(
-    #   (sum_SI>=1)~"ALI (SI)", T~RF_Prediction_50)
+      (Class %in% c("E") & RF_Prediction_50  %in% c("E") & SI_Vertebrates_PA>=1)~1, T~0)
+
   )
-si_summary <- si_summary %>% mutate(RF_Prediction_50_SI = ifelse(
-  sum_SI>=1 , "ALI", RF_Prediction_50))
 
-
-
-# Store for QC
-si_summary_subset <- si_summary[, c("ParentGlobalID","SiteCode","Class","Dataset",
-       "Notes","RF_Prediction_50", "RF_Prediction_50_SI",
-       "Refinement", "sum_SI",
-       SI_variables, 
-       "Corrections_SI_Fish_NoMosq_PA",
-       "Corrections_SI_BMI_PA",
-       "Corrections_SI_BMI_10",
-       "Corrections_SI_EPT_PA",
-       "Corrections_SI_EPT_10",
-       "Corrections_SI_BMI_Peren_PA",
-       "Corrections_SI_BMI_Peren_10",
-       "Corrections_SI_Algae_10pct",
-       "Corrections_SI_HydricSoil_PA",
-       "Corrections_SI_IOFB_PA",
-       "Corrections_SI_Hydrophytes_PA",
-       "Corrections_SI_Vertebrates_PA",
-       
-       "Misses_SI_Fish_NoMosq_PA",
-       "Misses_SI_BMI_PA",
-       "Misses_SI_BMI_10",
-       "Misses_SI_EPT_PA",
-       "Misses_SI_EPT_10",
-       "Misses_SI_BMI_Peren_PA",
-       "Misses_SI_BMI_Peren_10",
-       "Misses_SI_Algae_10pct",
-       "Misses_SI_HydricSoil_PA",
-       "Misses_SI_IOFB_PA",
-       "Misses_SI_Hydrophytes_PA",
-       "Misses_SI_Vertebrates_PA",
-       
-       "Mistakes_SI_Fish_NoMosq_PA",
-       "Mistakes_SI_BMI_PA",
-       "Mistakes_SI_BMI_10",
-       "Mistakes_SI_EPT_PA",
-       "Mistakes_SI_EPT_10",
-       "Mistakes_SI_BMI_Peren_PA",
-       "Mistakes_SI_BMI_Peren_10",
-       "Mistakes_SI_Algae_10pct",
-       "Mistakes_SI_HydricSoil_PA",
-       "Mistakes_SI_IOFB_PA",
-       "Mistakes_SI_Hydrophytes_PA",
-       "Mistakes_SI_Vertebrates_PA"
-      )]
-
-si_summary_subset <- si_summary_subset %>% filter(Notes != "Augmented") %>%
+si_summary_subset <- si_summary %>% filter(Notes != "Augmented") %>%
   mutate(BigError=case_when(                                     
             (Class == "E" & RF_Prediction_50=="P")~1, 
             (Class == "P" & RF_Prediction_50=="E")~1,
             T~0)
          )
-    
-write.csv(si_summary_subset, paste0(out_dir, "/si_summary_subset.csv"))
+# write.csv(si_summary_subset, paste0(out_dir, "/si_summary_subset.csv"))
 
 
+# FINAL MODEL PERFORMANCE STRATA
+si_summary_full <- si_summary_subset %>% 
+  mutate(P_or_I = case_when(Class %in% c("P", "I") ~ TRUE, T~F),
+         I_or_E = case_when(Class %in% c("I", "E") ~ TRUE, T~F),
+         P_or_I_wet = case_when(P_or_I & Wet ~ TRUE, T~F),
+         I_or_E_dry = case_when(I_or_E & !Wet ~ TRUE, T~F)) %>%
+  group_by(Refinement, Dataset, Region_detail) %>%
+  summarise(n_tests=length(SiteCode),
+            n_tests_wet=sum(Wet),
+            n_tests_dry=sum(!Wet),
+            n_correct_PvIvE=sum(PvIvE_correct),
+            n_correct_EvALI=sum(EvALI_correct),
+            n_correct_PvIwet=sum(Class[P_or_I_wet]==RF_Prediction_50[P_or_I_wet]),
+            n_correct_IvEdry=sum(Class[I_or_E_dry]==RF_Prediction_50[I_or_E_dry]),
+            n_wet_P_or_I=sum(P_or_I_wet),
+            n_dry_I_or_E=sum(I_or_E_dry)
+  ) %>%
+  ungroup() %>%
+  mutate(pct_correct_PvIvE = n_correct_PvIvE/n_tests,
+         pct_correct_EvALI = n_correct_EvALI/n_tests,
+         pct_correct_PvIwet = n_correct_PvIwet/n_wet_P_or_I,
+         pct_correct_IvEdry = n_correct_IvEdry/n_dry_I_or_E
+  ) %>% 
+  as.data.frame()
 
-# 
-# df_longer <- si_summary_subset %>%
-#   pivot_longer(cols = starts_with("Misses_"),
-#                names_to = "Missed",
-#                names_prefix = "Misses_",
-#                values_to = "count") %>%
-#   unique() %>%
-#   pivot_longer(cols = starts_with("Mistakes_"),
-#                names_to = "Mistake",
-#                names_prefix = "Mistakes_",
-#                values_to = "count",
-#                names_repair = "unique") %>%
-#   unique()
-# 
-# df_longer
+# write.csv(si_summary_full, paste0(out_dir, "/si_summary_full.csv"))
 
 
+############################################################
 
-
-big_errors <- si_summary_subset %>% 
-                  filter(Notes != "Augmented", BigError == 1)# %>%
-                 # select("ParentGlobalID","SiteCode","Class","Dataset",
-                   #      "Notes","RF_Prediction_50","Refinement", "BigError")
-write.csv(big_errors, paste0(out_dir, "/big_errors.csv"))
-
-
-si_summary2 <- si_summary %>% group_by(Refinement) %>% 
-  summarise(
-      SI_nomosqfish_corrections = sum(Corrections_SI_Fish_NoMosq_PA),
-      SI_nomosqfish_misses = sum(Misses_SI_Fish_NoMosq_PA),
-      SI_nomosqfish_mistakes = sum(Mistakes_SI_Fish_NoMosq_PA),
-      
-      SI_bmipa_corrections = sum(Corrections_SI_BMI_PA),
-      SI_bmipa_misses = sum(Misses_SI_BMI_PA),
-      SI_bmipa_mistakes = sum(Mistakes_SI_BMI_PA),
-      
-      SI_bmi10_corrections = sum(Corrections_SI_BMI_10),
-      SI_bmi10_misses = sum(Misses_SI_BMI_10),
-      SI_bmi10_mistakes = sum(Mistakes_SI_BMI_10),
-      
-      SI_eptpa_corrections = sum(Corrections_SI_EPT_PA),
-      SI_eptpa_misses = sum(Misses_SI_EPT_PA),
-      SI_eptpa_mistakes = sum(Mistakes_SI_EPT_PA),
-      
-      SI_ept10_corrections = sum(Corrections_SI_EPT_10),
-      SI_ept10_misses = sum(Misses_SI_EPT_10),
-      SI_ept10_mistakes = sum(Mistakes_SI_EPT_10),
-      
-      SI_bmiperenpa_corrections = sum(Corrections_SI_BMI_Peren_PA),
-      SI_bmiperenpa_misses = sum(Misses_SI_BMI_Peren_PA),
-      SI_bmiperenpa_mistakes = sum(Mistakes_SI_BMI_Peren_PA),
-      
-      SI_bmiperen10_corrections = sum(Corrections_SI_BMI_Peren_10),
-      SI_bmiperen10_misses = sum(Misses_SI_BMI_Peren_10),
-      SI_bmiperen10_mistakes = sum(Mistakes_SI_BMI_Peren_10),
-      
-      SI_algae10_corrections = sum(Corrections_SI_Algae_10pct),
-      SI_algae10_misses = sum(Misses_SI_Algae_10pct),
-      SI_algae10_mistakes = sum(Mistakes_SI_Algae_10pct),
-      
-      SI_hydricsoils_corrections = sum(Corrections_SI_HydricSoil_PA),
-      SI_hydricsoils_misses = sum(Misses_SI_HydricSoil_PA),
-      SI_hydricsoils_mistakes = sum(Mistakes_SI_HydricSoil_PA),
-      
-      SI_iofb_corrections = sum(Corrections_SI_IOFB_PA),
-      SI_iofb_misses = sum(Misses_SI_IOFB_PA),
-      SI_iofb_mistakes = sum(Mistakes_SI_IOFB_PA),
-      
-      SI_hydrophytes_corrections = sum(Corrections_SI_Hydrophytes_PA),
-      SI_hydrophytes_misses = sum(Misses_SI_Hydrophytes_PA),
-      SI_hydrophytes_mistakes = sum(Mistakes_SI_Hydrophytes_PA),
-      
-      SI_vertebrates_corrections = sum(Corrections_SI_Vertebrates_PA),
-      SI_vertebrates_misses = sum(Misses_SI_Vertebrates_PA),
-      SI_vertebrates_mistakes = sum(Mistakes_SI_Vertebrates_PA)
+si_0and4 <-  si_summary_full %>% filter(Refinement %in% 
+                      c("V0_NoGIS_Unstrat","V4_NoGIS_Unstrat")) %>% 
+          group_by(Refinement)
+  df_dots_0and4  <- si_0and4 %>%
+    select(-n_correct_PvIvE, -n_correct_EvALI) %>%
+    pivot_longer(cols=starts_with("pct"), values_to="Accuracy", 
+                 names_to="Measure") %>% 
+    mutate(Measure=str_sub(Measure, start=13)) 
+  
+  
+  df_dots_0and4$Measure <- factor(df_dots_0and4$Measure,
+                            levels=c("PvIvE","EvALI","PvIwet","IvEdry" ))
+  
+  df_dots_0and4$Dataset <- factor(df_dots_0and4$Dataset, 
+                            levels=c("Testing","Training"))
+  label_names <- c(
+    `PvIvE` = "Accuracy\nPvIvE",
+    `EvALI` = "Accuracy\nEvALI",
+    `PvIwet` = "Accuracy\nPvIwet",
+    `IvEdry` = "Accuracy\nIvEdry"
   )
-
-si_summary_pivoted <- si_summary2 %>% 
-  pivot_longer(cols=starts_with("SI_"), 
-               names_prefix ="SI_", 
-               names_to = "Change", 
-               values_to = "count")
-
-si_summary_pivoted <- si_summary_pivoted %>% mutate(Status = case_when(
-  (str_detect(Change, "corrections") ~ "Correction"),
-  (str_detect(Change, "mistakes") ~ "Mistake"), 
-  (str_detect(Change, "misses") ~ "Missed"),
-  TRUE ~ "error") 
-  ) %>% mutate(Label = case_when(
-  (str_detect(Change, "nomosqfish") ~ "Fish NoMosq (PA)"),
-  (str_detect(Change, "bmipa") ~ "BMI (PA)"), 
-  (str_detect(Change, "bmi10") ~ "BMI (10)"), 
-  (str_detect(Change, "eptpa") ~ "EPT (PA)"),
-  (str_detect(Change, "ept10") ~ "EPT (10)"),
-  (str_detect(Change, "bmiperenpa") ~ "BMI Peren (PA)"), 
-  (str_detect(Change, "bmiperen10") ~ "BMI Peren (10)"), 
-  (str_detect(Change, "algae10") ~ "Algae 10"),
-  (str_detect(Change, "hydricsoils") ~ "Hydric Soils"),
-  (str_detect(Change, "iofb") ~ "IOFB"), 
-  (str_detect(Change, "hydrophytes") ~ "Hydrophytes"),
-  (str_detect(Change, "vertebrates") ~ "Vertebrates"),
-  TRUE ~ "error")
-  )
-# Store for QC
-write.csv(si_summary_pivoted, paste0(out_dir, "/si_summary_pivoted.csv"))
-
-
-ref_versions <-  si_summary_pivoted %>% select(Refinement) %>% unique()
-ref_versions <- ref_versions[, "Refinement"]
-
-si_plot2 <- ggplot(data=si_summary_pivoted %>% group_by(Refinement, Label, Status) , 
-                   aes(x=count, y=Label))+
-  geom_point(aes(color=Status, group=Label, alpha=0.5 ))+
-  scale_color_manual(
-    values=c(
-      "Correction"="#04912a",
-      "Mistake"="red",
-      "Missed"="blue")) +
-  facet_wrap(~Refinement)+
-  xlab("Number of samples changed")+
-  ylab("")+
-  labs(title = "Single Indicators")
-si_plot2
-ggsave(si_plot2,
-       filename=paste0(out_dir,"/si_plot2.png"),
-       width=9, height=6)
-
-
-si_plot3 <- ggplot(data=si_summary_pivoted %>% 
-                     group_by(Refinement, Label, Status) , 
-                   aes(x=count, y=Refinement))+
-  geom_point(aes(color=Status, group=Label, alpha=0.5 ),
-  position = position_dodge(width=.2))+
-  scale_color_manual(
-    values=c(
-      "Correction"="#04912a",
-      "Mistake"="red",
-      "Missed"="blue")
-  ) +
-  facet_wrap(~Label)+
-  xlab("Number of samples changed")+
-  ylab("")+
-  labs(title = "Single Indicators", 
-       subtitle = "Training and Testing, non-augmented")
-ggsave(si_plot3,
-       filename=paste0(out_dir,"/si_plot3.png"),
-       width=9, height=6)
-
-
-
-si_plot3b <- ggplot(data=si_summary_pivoted %>% 
-                      filter(Status %in% 
-                               c("Correction","Mistake")) %>% 
-                      group_by(Refinement, Label, Status) , 
-                   aes(x=count, y=Refinement))+
-  geom_point(aes(color=Status, group=Label #
-, alpha=0.5
-  ), position = position_dodge(width=.2)
-  )+
-  scale_color_manual(
-    values=c(
-      "Correction"="#04912a",
-      "Mistake"="red")
-  ) +
-  facet_wrap(~Label)+
-  xlab("Number of samples changed")+
-  ylab("")+
-  labs(title = "Single Indicators", 
-       subtitle = "Training and Testing, non-augmented")
-ggsave(si_plot3b,
-       filename=paste0(out_dir,"/si_plot3b.png"),
-       width=9, height=6)
-
-
-
-
-# si_plot3c <- ggplot(data=si_summary_pivoted %>% 
-#                       # filter(Refinement %in% 
-#                       #          c("V0_NoGIS_Unstrat", "V4_NoGIS_Unstrat")) %>%
-#                       filter(Label %in%
-#                                c("Fish NoMosq (PA)","BMI Peren","EPT (10)")) %>%
-#                       filter(Status %in% 
-#                                c("Correction","Mistake")) %>% 
-#                       group_by(Refinement, Label, Status) , 
-#                     aes(x=count, y=Refinement))+
-#   geom_point(aes(color=Status, group=Label #, alpha=0.5
-#   ), position = position_dodge(width=.2), size=2.3
-#   )+
-#   scale_color_manual(
-#     values=c(
-#       "Correction"="#04912a",
-#       "Mistake"="red"#,
-#       # "Missed"="blue"
-#     )
-#   ) +
-#   facet_wrap(~Label)+
-#   xlab("Number of samples changed")+
-#   ylab("")+
-#   labs(title = "Single Indicators", 
-#        subtitle = "Training and Testing, non-augmented")
-# 
-# ggsave(si_plot3c,
-#        filename=paste0(out_dir,"/si_plot3c.png"),
-#        width=8.5, height=3.5)
-# 
-
-
-
-## Only models of interest
-si_plot4 <- ggplot(data=si_summary_pivoted %>% 
-                  filter(Refinement %in% 
-                    c("V0_NoGIS_Unstrat", "V4_NoGIS_Unstrat")) %>%
-                  filter(Label %in% 
-                    c("Fish NoMosq (PA)")) %>% 
-                  group_by(Refinement, Label, Status) , 
-                  aes(x=count, y=Refinement))+
-  geom_point(aes(color=Status, group=Label#, alpha=0.5
-                 ),
-            position = position_dodge(width=.2),
-            size=2.3
-  )+ scale_color_manual(
-    values=c(
-      "Correction"="#04912a",
-      "Mistake"="red",
-      "Missed"="blue")
-  ) + facet_wrap(~Label) +
-  xlab("Number of samples changed")+
-  ylab("")+
-  labs(title = "Single Indicators", 
-       subtitle = "Training and Testing, non-augmented")
-si_plot4
-
-ggsave(si_plot4,
-       filename=paste0(out_dir,"/si_plot4.png"),
-       width=5.5, height=3)
-
-si_plot5 <- ggplot(data=si_summary_pivoted %>% 
-                     filter(Refinement %in% 
-                              c("V0_NoGIS_Unstrat", "V4_NoGIS_Unstrat")) %>%
-                     filter(Label %in% 
-                              c("Fish NoMosq (PA)")) %>% 
-                     filter(Status %in% 
-                              c("Correction","Mistake")) %>% 
-                     group_by(Refinement, Label, Status) , 
-                   aes(x=count, y=Refinement))+
-  geom_point(aes(color=Status, group=Label#, alpha=0.5
-  ),
-  position = position_dodge(width=.2),
-  size=4
-  )+ scale_color_manual(
-    values=c(
-      "Correction"="#04912a",
-      "Mistake"="red",
-      "Missed"="blue")
-  ) + facet_wrap(~Label) +
-  xlab("Number of samples changed")+
-  ylab("")+
-  labs(title = "Single Indicators", 
-       subtitle = "Training and Testing, non-augmented")
-si_plot5
-
-ggsave(si_plot5,
-       filename=paste0(out_dir,"/si_plot5.png"),
-       width=6, height=4)
-
-
-##Plot each version separately
-ref_versions <-  si_summary_pivoted %>% select(Refinement) %>% unique()
-
-for (v in ref_versions$Refinement) {
-  print(v)
-  si_plot_v <- ggplot(data=si_summary_pivoted %>% filter(Refinement == v) %>%
-                        # filter(Status %in% c("Correction","Mistake")) %>%
-                        group_by(Refinement, Label, Status) ,
-                      aes(x=count, y=Label))+
-    geom_point(aes(color=Status, group=Label, alpha=0.5
-    ),
-    position = position_dodge(width=.2)
-    )+
+  dotplot_0and4 <- ggplot(data=df_dots_0and4, 
+                     aes(x=Region_detail, y=Accuracy))+
+    geom_jitter(aes(size=Dataset, color=Region_detail, shape=Refinement), 
+                width=0.04, height=0)+
     scale_color_manual(
       values=c(
-        "Correction"="#04912a",
-        "Mistake"="red",
-        "Missed"="blue")
+        "Unstrat"="black",
+        "GP_S"="#dbb002",
+        "GP_N"="#2ac93a",
+        "GP_C"="#0639c4",
+        "GP_U"="#db0247") 
     ) +
-    # facet_wrap(~Label)+
-    xlab("Number of samples changed")+
-    ylab("")+
-    labs(title = paste(v, "- Single Indicator performance"),
-         subtitle = "Training and testing, non-augmented")
-  si_plot_v
-  
-  ggsave(si_plot_v,
-         filename=paste0(out_dir,"/si_plot_",v,".png"),
-         width=6, height=4.8)
-  
-  
-  ##output SI summary
-  v_csv <- si_summary %>% filter(Refinement == v) 
-  write.csv(v_csv, paste0(out_dir, "/si_summary_",v,".csv"))
-  
-  
+    scale_size_manual(values=c(1,2.5))+
+    scale_shape_manual(values=c(1, 16)) +
+    facet_wrap(~Measure, nrow = 1, scales="free_x",
+               labeller=as_labeller(label_names))+
+    coord_flip()+
+    xlab("")+
+    labs(title=paste0("Summary of Original Unstrat_NoGIS vs Refined V4 by Strata"))+
+    scale_y_continuous(limits=c(0,1), breaks=c(0,.5,1), name="Performance")+
+    theme_bw()
+  dotplot_0and4
+  ggsave(dotplot_0and4, height=4, width = 9, units="in", dpi=900,
+         filename=paste0(out_dir, "/dotplot_0and4_fixed.png"))
+
+
+
+
+############################################################
+ref_versions <-  si_summary_full %>% select(Refinement) %>% unique()
+
+for (chosen_version in ref_versions$Refinement) {
+    print(chosen_version)
+    parent_path <- paste0(HOME_DIR, "/output/models/", model_version,
+                  "/", chosen_model,"/", chosen_version)
+    
+    out_dir <- paste0(parent_path, "/final_w_SI")
+    if (!dir.exists(out_dir)){dir.create(out_dir)}
+    
+    
+    
+    sub <- si_summary_full %>% filter(Refinement==chosen_version)
+    current <- si_summary_subset %>% filter(Refinement==chosen_version)
+    write.csv(sub, 
+              paste0(out_dir, "/", chosen_version,
+                     "_refined_si_summary.csv"))
+    write.csv(current, 
+              paste0(out_dir, "/", chosen_version,
+                     "_refined_si_full.csv"))
+    
+    
+    
+    df_dots <- sub %>%
+      select(-n_correct_PvIvE, -n_correct_EvALI) %>%
+      pivot_longer(cols=starts_with("pct"), values_to="Accuracy", 
+                   names_to="Measure") %>% 
+      mutate(Measure=str_sub(Measure, start=13)) 
+    
+    
+    df_dots$Measure <- factor(df_dots$Measure,
+                              levels=c("PvIvE","EvALI","PvIwet","IvEdry" ))
+    
+    df_dots$Dataset <- factor(df_dots$Dataset, 
+                              levels=c("Testing","Training"))
+    label_names <- c(
+      `PvIvE` = "Accuracy\nPvIvE",
+      `EvALI` = "Accuracy\nEvALI",
+      `PvIwet` = "Accuracy\nPvIwet",
+      `IvEdry` = "Accuracy\nIvEdry"
+    )
+    dotplot1 <- ggplot(data=df_dots, 
+                       aes(x=Region_detail, y=Accuracy))+
+      geom_jitter(aes(size=Dataset, color=Region_detail), width=0.04, height=0)+
+      scale_color_manual(
+        values=c(
+          "Unstrat"="black",
+          "GP_S"="#dbb002",
+          "GP_N"="#2ac93a",
+          "GP_C"="#0639c4",
+          "GP_U"="#db0247") 
+      ) +
+      scale_size_manual(values=c(1,2.5))+
+      facet_wrap(~Measure, nrow = 1, scales="free_x",
+                 labeller=as_labeller(label_names))+
+      coord_flip()+
+      xlab("")+
+      labs(title=paste0("Summary of Refined Model (",chosen_version,") by Strata"))+
+      # scale_y_continuous(limits=c(0,1), breaks=c(0,.5,1), name="Performance")+
+      theme_bw()
+    dotplot1
+    ggsave(dotplot1, height=4, width = 9, units="in", dpi=900,
+         filename=paste0(out_dir, "/dotplot1.png"))
+    
+    
+    ## FINAL CONFUSION MATRIX - before
+    results_conf_mat <- current %>% group_by(Class, Dataset)
+    results_conf_mat$Class <- as.factor(results_conf_mat$Class)
+    results_conf_mat$Dataset <- as.factor(results_conf_mat$Dataset)
+    results_conf_mat$RF_Prediction_50 <- as.factor(results_conf_mat$RF_Prediction_50)
+    results_conf_mat2 <- results_conf_mat %>%
+      group_by( Class, Dataset, RF_Prediction_50)%>%
+      summarise(n=length(SiteCode)) %>%
+      rename(ActualClass="Class")
+    results_conf_mat3 <- spread(results_conf_mat2, key = RF_Prediction_50, value = n)
+    results_conf_mat3 <- results_conf_mat3 %>% arrange(Dataset)
+    melted <- melt(results_conf_mat3)
+    cm_pivot_table <- melted %>%
+      pivot_wider(
+        names_from = c(ActualClass, Dataset),
+        values_from = value
+      ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI', 'P', 'LTP', 'NMI')))
+    ## FINAL CM -after
+    this_SI <- "SI_Hydrophytes_PA"
+    results_conf_mat_after <- results_conf_mat %>% mutate(
+      RF_Prediction_50_SI_Hydrophytes_PA=case_when(
+          (SI_Hydrophytes_PA>=1)~"ALI (SI)", T~RF_Prediction_50))
+    
+    results_conf_mat_after$RF_Prediction_50_SI_Hydrophytes_PA <- as.factor(
+        results_conf_mat_after$RF_Prediction_50_SI_Hydrophytes_PA)
+    results_conf_mat_after2 <- results_conf_mat_after %>%
+      group_by( Class, Dataset, RF_Prediction_50_SI_Hydrophytes_PA)%>%
+      summarise(n=length(SiteCode)) %>%
+      rename(ActualClass="Class")
+    results_conf_mat_after3 <- spread(results_conf_mat_after2, key = RF_Prediction_50_SI_Hydrophytes_PA, value = n)
+    results_conf_mat_after3 <- results_conf_mat_after3 %>% arrange(Dataset)
+    melted_after <- melt(results_conf_mat_after3)
+    cm_pivot_table_after <- melted_after %>%
+      pivot_wider(
+        names_from = c(ActualClass, Dataset),
+        values_from = value
+      ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI','ALI (SI)', 'P', 'LTP', 'NMI')))
+    cm_out_dir <- paste0(out_dir, "/CM_SI_detail")
+    if (!dir.exists(cm_out_dir)){dir.create(cm_out_dir)}
+    write.csv(cm_pivot_table, 
+              paste0(cm_out_dir, "/CM_",chosen_model,
+                     "_noSI.csv"))
+    write.csv(cm_pivot_table_after, 
+              paste0(cm_out_dir, "/CM_",chosen_model,
+                     "_",this_SI,".csv"))
+ 
+    # write_csv(cm_pivot_table, file=paste0(this_dir, "/confusion_matrix.csv"))
+    
+    
 }
 
 
 
-# ############################## ONLY LOOK AT TESTING
-# si_summary_test <- si_summary %>% group_by(Refinement) %>%
-#   filter(Dataset =="Testing") %>%
-#   # tally()
-#   summarise(
-#     SI_nomosqfish_corrections = sum(Corrections_SI_Fish_NoMosq_PA),
-#     SI_nomosqfish_misses = sum(Misses_SI_Fish_NoMosq_PA),
-#     SI_nomosqfish_mistakes = sum(Mistakes_SI_Fish_NoMosq_PA),
-# 
-#     SI_bmipa_corrections = sum(Corrections_SI_BMI_PA),
-#     SI_bmipa_misses = sum(Misses_SI_BMI_PA),
-#     SI_bmipa_mistakes = sum(Mistakes_SI_BMI_PA),
-# 
-#     SI_eptpa_corrections = sum(Corrections_SI_EPT_PA),
-#     SI_eptpa_misses = sum(Misses_SI_EPT_PA),
-#     SI_eptpa_mistakes = sum(Mistakes_SI_EPT_PA),
-# 
-#     SI_ept10_corrections = sum(Corrections_SI_EPT_10),
-#     SI_ept10_misses = sum(Misses_SI_EPT_10),
-#     SI_ept10_mistakes = sum(Mistakes_SI_EPT_10),
-# 
-#     SI_bmiperen_corrections = sum(Corrections_SI_BMI_Peren_PA),
-#     SI_bmiperen_misses = sum(Misses_SI_BMI_Peren_PA),
-#     SI_bmiperen_mistakes = sum(Mistakes_SI_BMI_Peren_PA),
-# 
-#     SI_algae10_corrections = sum(Corrections_SI_Algae_10pct),
-#     SI_algae10_misses = sum(Misses_SI_Algae_10pct),
-#     SI_algae10_mistakes = sum(Mistakes_SI_Algae_10pct),
-# 
-#     SI_hydricsoils_corrections = sum(Corrections_SI_HydricSoil_PA),
-#     SI_hydricsoils_misses = sum(Misses_SI_HydricSoil_PA),
-#     SI_hydricsoils_mistakes = sum(Mistakes_SI_HydricSoil_PA),
-# 
-#     SI_iofb_corrections = sum(Corrections_SI_IOFB_PA),
-#     SI_iofb_misses = sum(Misses_SI_IOFB_PA),
-#     SI_iofb_mistakes = sum(Mistakes_SI_IOFB_PA),
-# 
-#     SI_hydrophytes_corrections = sum(Corrections_SI_Hydrophytes_PA),
-#     SI_hydrophytes_misses = sum(Misses_SI_Hydrophytes_PA),
-#     SI_hydrophytes_mistakes = sum(Mistakes_SI_Hydrophytes_PA)
-#   )
-# 
-# si_summary_test_pivoted <- si_summary_test %>%
-#   pivot_longer(cols=starts_with("SI_"),
-#                names_prefix ="SI_",
-#                names_to = "Change",
-#                values_to = "count")
-# 
-# si_summary_test_pivoted <- si_summary_test_pivoted %>% mutate(Status = case_when(
-#   (str_detect(Change, "corrections") ~ "Correction"),
-#   (str_detect(Change, "mistakes") ~ "Mistake"),
-#   (str_detect(Change, "misses") ~ "Missed"),
-#   TRUE ~ "error")
-# ) %>% mutate(Label = case_when(
-#   (str_detect(Change, "fish") ~ "Fish NoMosq (PA)"),
-#   (str_detect(Change, "bmipa") ~ "BMI (PA)"),
-#   (str_detect(Change, "eptpa") ~ "EPT (PA)"),
-#   (str_detect(Change, "ept10") ~ "EPT (10)"),
-#   (str_detect(Change, "bmiperen") ~ "BMI Peren"),
-#   (str_detect(Change, "algae10") ~ "Algae 10"),
-#   (str_detect(Change, "hydricsoils") ~ "Hydric Soils"),
-#   (str_detect(Change, "iofb") ~ "IOFB"),
-#   (str_detect(Change, "hydrophytes") ~ "Hydrophytes"),
-#   TRUE ~ "error")
-# )
-# # Store for QC
-# # write.csv(si_summary_test_pivoted, paste0(out_dir, "/si_summary_test_pivoted.csv"))
-# 
-# si_plot6 <- ggplot(data=si_summary_test_pivoted %>%
-#                      filter(Status %in% c("Correction","Mistake")) %>%
-#                        group_by(Refinement, Label, Status) ,
-#                      aes(x=count, y=Refinement))+
-#   geom_point(aes(color=Status, group=Label, alpha=0.5
-#   ),
-#   position = position_dodge(width=.2)
-#   )+
-#   scale_color_manual(
-#     values=c(
-#       "Correction"="#04912a",
-#       "Mistake"="red",
-#       "Missed"="blue")
-#   ) +
-#   facet_wrap(~Label)+
-#   xlab("Number of samples changed")+
-#   ylab("")+
-#   labs(title = "Single Indicators",
-#        subtitle = "Testing, non-augmented")
-# 
-# si_plot6
-# 
-# ggsave(si_plot6,
-#        filename=paste0(out_dir,"/si_plot6.png"),
-#        width=9, height=6)
-# 
-# 
