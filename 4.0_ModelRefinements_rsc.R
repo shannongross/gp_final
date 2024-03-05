@@ -1,8 +1,8 @@
-######################################################################
+################################################################################
 # This script shows a subset of manual refinements for the Great Plains
 # Unstrat No GIS model that were presented to the Regional Steering Committee
 #
-######################################################################
+################################################################################
 library(ggrepel)
 library(tidyverse)
 library(sf)
@@ -45,7 +45,6 @@ df_input <- df_input %>% mutate( Strata = Region_detail)
 
 # Separate datasets
 df_test <- df_input %>% filter(Dataset=="Testing")
-df_train <- df_input %>% filter(Dataset=="Training" & Notes=="Original")
 df_aug_train <- df_input %>% filter(Dataset=="Training")
 
 
@@ -55,9 +54,9 @@ df_aug_train <- df_input %>% filter(Dataset=="Training")
 df_input <- df_input %>% mutate(
     BankWidth_10 = case_when(BankWidthMean<10~0, T~1),
     TotalAbund_8 = case_when(TotalAbundance<8~0, T~1),
-    TotalAbund_8_24 = case_when(TotalAbundance<8~0,  #same as TotalAbund_8
+    TotalAbund_8_24 = case_when(TotalAbundance<8~0,  
         ((TotalAbundance>=8) & (TotalAbundance<=24)~1),
-          TotalAbundance>=24~2),
+          TotalAbundance>=24~2), #performed same as TotalAbund_8
     TotalAbund_0_8_24 = case_when(TotalAbundance==0~0, 
                                   ((TotalAbundance>0) & (TotalAbundance<=8)~1),
                                 ((TotalAbundance>=8) & (TotalAbundance<=24)~2),
@@ -129,9 +128,9 @@ ggsummaryPlot <- function(df){
 }
 
 #######################################################################
-# Stepwise refinement of NORTHEAST model
+# Stepwise refinement of GP model
 #######################################################################
-model_version <- "DraftFinalModels2" 
+model_version <- "DraftFinalModelsQC" 
 chosen_model <- "NoGIS_Unstrat"
 plotwidth <- 10.5
 numTrees <- 1500
@@ -189,7 +188,7 @@ train_results <- tibble(df_MODEL[unique(c(
   bind_cols(
     predict(thismod, type="prob") %>%
       as_tibble() #Generate the prediction probabilities and bind to the first column
-  ) #check bind cols
+  ) 
 
 #define new data frame
 new_data <- df_TESTING[, c("Class", field_model_vars)]
@@ -207,7 +206,7 @@ test_results <- tibble(df_TESTING[unique(c(
   rename(RF_Prediction_Majority="pred") %>%
   bind_cols(
     predict(thismod,
-          newdata=new_data,  #Generate predictions
+          newdata=new_data,  #Generate predictions on new data
           type="prob") %>%
     as_tibble()
     )
@@ -222,7 +221,7 @@ refined_results <- full_results %>% mutate(
       P>=.5~"P",
       P>E~"ALI",
       E>P~"LTP",
-      P==E & I>P~"NMI", # no longer LI
+      P==E & I>P~"NMI", 
       P==E & I<=P~"NMI",
       T~"Other"),
   #Identify correct classifications
@@ -235,11 +234,21 @@ refined_results <- full_results %>% mutate(
     Class %in% c("I") & RF_Prediction_50 %in% c("I")~T,
     Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
     T~F),
+  #TODO: dont count P in EvI Dry!!!
   EvIdry_correct = case_when(
     Class %in% c("E") & !Wet & RF_Prediction_50 %in% c("E")~T,
     Class %in% c("I") & !Wet & RF_Prediction_50 %in% c("I")~T,
     T~F),
-  ##add PvLTP
+  ##TODO: add PvLTP
+  PvLTP_correct = case_when(
+    Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
+    Class %in% c("I","E") & RF_Prediction_50 %in% c("I","E","LTP")~T,
+    T~F),
+  ##TODO: add PvIwet
+  PvIwet_correct = case_when(
+    Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
+    Class %in% c("I","P") & RF_Prediction_50 %in% c("I","P","ALI")~T,
+    T~F),
   Refinement=paste0(refinement_version)
 )
 
@@ -284,9 +293,13 @@ refined_stats <- refined_results %>%
             pctCorrectPvIvE=n_correct_PvIvE/n_tests,
             n_correct_EvALI=sum(EvALI_correct==TRUE),
             pctCorrect_EvALI=n_correct_EvALI/n_tests,
-            n_correct_EvIdry=sum(EvIdry_correct==TRUE),
-            n_dry=sum(Wet==FALSE),
-            pctCorrect_EvIdry=n_correct_EvIdry/n_dry
+            n_correct_EvIdry=sum(EvIdry_correct==TRUE), #TODO: dont count P in EvI Dry!!!
+            # n_dry=sum(Wet==FALSE),
+            # pctCorrect_EvIdry=n_correct_EvIdry/n_dry
+            n_dry_notP=sum(Wet==FALSE & Class %in% c("I","E")),
+            pctCorrect_EvIdry=(n_correct_EvIdry/n_dry_notP),
+            #TODO: did we have any P dry sites?
+            n_dry_P=sum(Wet==FALSE & Class %in% c("P"))
   )
 print(head(refined_stats))
 write_csv(refined_stats, file=paste0(this_dir,"/refined_stats.csv"))
@@ -295,9 +308,10 @@ write_csv(refined_stats, file=paste0(this_dir,"/refined_stats.csv"))
 cat(paste("\nTRAINING"),file=log_con, append = TRUE)
 capture.output(thismod, file=log_con, append = TRUE)
 cat(paste("\nsummary_stats"),file=log_con, append = TRUE)
-# capture.output(summary_stats, file=log_con, append = TRUE, sep="\n")
+capture.output(summary_stats, file=log_con, append = TRUE, sep="\n")
+
 if (thisstep==0){
-      ModRefineSummaryTEST1 <- tibble(Step=thisstep,
+      refined_model_summary <- tibble(Step=thisstep,
           Description=descript,
           n_varz= thismod$importance %>% nrow(),
           varz=list(field_model_vars),
@@ -306,7 +320,7 @@ if (thisstep==0){
           pctCorrect_EvIdry=refined_stats$pctCorrect_EvIdry
           )
     } else {
-       ModRefineSummaryTEST1 <- ModRefineSummaryTEST1 %>% bind_rows(
+       refined_model_summary <- refined_model_summary %>% bind_rows(
        tibble(Step=thisstep,
             Description=descript,
             n_varz= thismod$importance %>% nrow(),
@@ -317,12 +331,11 @@ if (thisstep==0){
             )
       )
 }
-print(ModRefineSummaryTEST1)
-write_csv(ModRefineSummaryTEST1, file=paste0(this_dir,"/ModRefineSummaryTEST1.csv"))
+print(refined_model_summary)
+write_csv(refined_model_summary, file=paste0(this_dir,"/refined_model_summary.csv"))
 
-plot_steps <- ggsummaryPlot(ModRefineSummaryTEST1) + labs()
-plot_steps
-# plot_steps
+#Plot steps
+plot_steps <- ggsummaryPlot(refined_model_summary) + labs()
 ggsave(paste0(this_dir, "/refinement", refinement_version,".png"), plot_steps,
        dpi=600, height=6, width=plotwidth)
 
@@ -352,7 +365,6 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
                          ntree=numTrees,
                          importance=T,
                          proximity=T)
-     # compare_performance(RF_BASE, RF_step)
      thismod <- RF_step
 
      # Train results
@@ -381,7 +393,7 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
        rename(RF_Prediction_Majority="pred") %>%
        bind_cols(
          predict(thismod, 
-                 newdata=new_data, #X_test[opt_preds], #Generate predictions
+                 newdata=new_data, #Generate predictions
                  type="prob") %>%
            as_tibble() 
        ) 
@@ -398,7 +410,7 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
          P>=.5~"P",
          P>E~"ALI",
          E>P~"LTP",
-         P==E & I>P~"NMI", # no longer LI
+         P==E & I>P~"NMI", 
          P==E & I<=P~"NMI",
          T~"Other"),
        #Identify correct classifications
@@ -411,11 +423,21 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
          Class %in% c("I") & RF_Prediction_50 %in% c("I")~T,
          Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
          T~F),
+       #dont count P in EvI Dry!!!
        EvIdry_correct = case_when(
          Class %in% c("E") & !Wet & RF_Prediction_50 %in% c("E")~T,
          Class %in% c("I") & !Wet & RF_Prediction_50 %in% c("I")~T,
          T~F),
-       ##add PvLTP
+       #add PvLTP
+       PvLTP_correct = case_when(
+         Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
+         Class %in% c("I","E") & RF_Prediction_50 %in% c("I","E","LTP")~T,
+         T~F),
+       #add PvIwet
+       PvIwet_correct = case_when(
+         Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
+         Class %in% c("I","P") & RF_Prediction_50 %in% c("I","P","ALI")~T,
+         T~F),
        Refinement=paste0(refinement_version)
      )
      
@@ -444,9 +466,11 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
      
      write_csv(cm_pivot_table, file=paste0(this_dir, "/confusion_matrix.csv"))
      
-     # # Saving on object in RData format
-     # rdata_name <- paste0("RF_", case, ".rds")
-     # saveRDS(RF, file = paste0(this_dir, "/",  case, "/", rdata_name))
+     # Saving on object in RData format
+     rdata_name <- paste0(this_dir, "/",  thisstep, "/RF_", chosen_model,
+                          "_", thisstep, ".rds")
+     print(paste("Saving:", rdata_name))
+     saveRDS(thismod, file=rdata_name)
      
      # ################ For all models, summarize:
      ## final summary
@@ -460,9 +484,11 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
                  pctCorrectPvIvE=n_correct_PvIvE/n_tests,
                  n_correct_EvALI=sum(EvALI_correct==TRUE),
                  pctCorrect_EvALI=n_correct_EvALI/n_tests,
-                 n_correct_EvIdry=sum(EvIdry_correct==TRUE),
-                 n_dry=sum(Wet==FALSE),
-                 pctCorrect_EvIdry=n_correct_EvIdry/n_dry
+                 n_correct_EvIdry=sum(EvIdry_correct==TRUE), #dont count P in EvI Dry!!!
+                 n_dry_notP=sum(Wet==FALSE & Class %in% c("I","E")),
+                 pctCorrect_EvIdry=(n_correct_EvIdry/n_dry_notP),
+                 n_dry_P=sum(Wet==FALSE & Class %in% c("P")#did we have any P dry sites?
+             )
        )
      print(head(refined_stats))
      write_csv(refined_stats, file=paste0(this_dir,"/refined_stats.csv"))
@@ -474,16 +500,16 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
      
      
      if (thisstep==0){
-       ModRefineSummaryTEST1 <- tibble(Step=thisstep,
-                                       Description=descript,
-                                       n_varz= thismod$importance %>% nrow(),
-                                       varz=list(field_model_vars),
-                                       pctCorrectPvIvE=refined_stats$pctCorrectPvIvE,
-                                       pctCorrect_EvALI=refined_stats$pctCorrect_EvALI,
-                                       pctCorrect_EvIdry=refined_stats$pctCorrect_EvIdry
+       refined_model_summary <- tibble(Step=thisstep,
+                 Description=descript,
+                 n_varz= thismod$importance %>% nrow(),
+                 varz=list(field_model_vars),
+                 pctCorrectPvIvE=refined_stats$pctCorrectPvIvE,
+                 pctCorrect_EvALI=refined_stats$pctCorrect_EvALI,
+                 pctCorrect_EvIdry=refined_stats$pctCorrect_EvIdry
        )
      } else {
-       ModRefineSummaryTEST1 <- ModRefineSummaryTEST1 %>% bind_rows(
+       refined_model_summary <- refined_model_summary %>% bind_rows(
          tibble(Step=thisstep,
                 Description=descript,
                 n_varz= thismod$importance %>% nrow(),
@@ -494,26 +520,25 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
          )
        )
      }
-     print(ModRefineSummaryTEST1)
-     write_csv(ModRefineSummaryTEST1, file=paste0(this_dir,"/ModRefineSummaryTEST1.csv"))
+     print(refined_model_summary)
+     write_csv(refined_model_summary, file=paste0(this_dir,"/refined_model_summary.csv"))
      
-     plot_steps <- ggsummaryPlot(ModRefineSummaryTEST1) + labs()
+     plot_steps <- ggsummaryPlot(refined_model_summary) + labs()
      plot_steps
      # plot_steps
      ggsave(paste0(this_dir, "/refinement", refinement_version,".png"), plot_steps,
             dpi=600, height=6, width=plotwidth)
 
-    
      # # Saving on object in RData format
      # rdata_name <- paste0("RF_", refinement_version, ".rds")
      # saveRDS(RF_step, file = paste0(this_dir, "/", rdata_name))
 
-     plot_steps <- ggsummaryPlot(ModRefineSummaryTEST1) + labs()
+     plot_steps <- ggsummaryPlot(refined_model_summary) + labs()
      # plot_steps
      ggsave(paste0(this_dir, "/refinement", refinement_version,".png"), plot_steps,
           dpi=600, height=6, width=plotwidth)
 
-     return(ModRefineSummaryTEST1)
+     return(refined_model_summary)
 
 }
 ##################################################################
@@ -526,7 +551,7 @@ this_model_vars <- setdiff(model_vars_step0,
 )
 this_model_vars <- c(this_model_vars,"UplandRooted_PA")
 
-ModRefineSummaryTEST1 <- make_refinements(thisstep=1,
+refined_model_summary <- make_refinements(thisstep=1,
             chosen_model=chosen_model,
             descript=paste(sort(this_model_vars), collapse="\n"),
             field_model_vars=this_model_vars
@@ -546,7 +571,7 @@ this_model_vars <- c(this_model_vars,
                      "UplandRooted_PA",
                      "hydrophytes_2")
 
-ModRefineSummaryTEST1 <- make_refinements(thisstep=2,
+refined_model_summary <- make_refinements(thisstep=2,
             chosen_model=chosen_model,
             # descript=description,
             descript=paste(sort(this_model_vars), collapse="\n"),
@@ -570,7 +595,7 @@ this_model_vars <- c(this_model_vars,
                      "hydrophytes_2",
                      "TotalAbund_0_10")
 
-ModRefineSummaryTEST1 <- make_refinements(thisstep=3,
+refined_model_summary <- make_refinements(thisstep=3,
               chosen_model=chosen_model,
               descript=paste(sort(this_model_vars), collapse="\n"),
               field_model_vars=this_model_vars
@@ -593,7 +618,7 @@ this_model_vars <- c(this_model_vars,
                      "hydrophytes_2",
                      "TotalAbund_0_10")
 
-ModRefineSummaryTEST1 <- make_refinements(thisstep=4,
+refined_model_summary <- make_refinements(thisstep=4,
                 chosen_model=chosen_model,
                 descript=paste(sort(this_model_vars), collapse="\n"),
                 field_model_vars=this_model_vars
@@ -615,7 +640,7 @@ this_model_vars <- c(this_model_vars,
                      "hydrophytes_2",
                      "TotalAbund_0_10")
 
-ModRefineSummaryTEST1 <- make_refinements(thisstep=5,
+refined_model_summary <- make_refinements(thisstep=5,
                     chosen_model=chosen_model,
                     descript=paste(sort(this_model_vars), collapse="\n"),
                     field_model_vars=this_model_vars
@@ -636,7 +661,7 @@ this_model_vars <- c(this_model_vars,
                      "UplandRooted_PA",
                      "hydrophytes_2",
                      "ephISAabund_PA")
-ModRefineSummaryTEST1 <- make_refinements(thisstep=6,
+refined_model_summary <- make_refinements(thisstep=6,
                     chosen_model=chosen_model,
                     descript=paste(sort(this_model_vars), collapse="\n"),
                     field_model_vars=this_model_vars
@@ -663,7 +688,7 @@ this_model_vars <- c(this_model_vars,
                             "TotalAbund_0_10",
                      "BankWidth_10")
 
-ModRefineSummaryTEST1 <- make_refinements(thisstep=7,
+refined_model_summary <- make_refinements(thisstep=7,
                     chosen_model=chosen_model,
                     # descript=description,
                     descript=paste(sort(this_model_vars), collapse="\n"),
