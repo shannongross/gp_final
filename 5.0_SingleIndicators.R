@@ -17,7 +17,6 @@ library(stringr)
 library(readxl)
 library(reshape2)
 
-
 model_version <- "DraftFinalModels2"
 chosen_model <- "NoGIS_Unstrat"
 
@@ -196,7 +195,7 @@ si_summary_subset <- si_summary %>% filter(Notes != "Augmented") %>%
             (Class == "P" & RF_Prediction_50=="E")~1,
             T~0)
          )
-# write.csv(si_summary_subset, paste0(out_dir, "/si_summary_subset.csv"))
+write.csv(si_summary_subset, paste0(out_dir, "/si_summary_subset.csv"))
 
 
 # FINAL MODEL PERFORMANCE STRATA
@@ -224,11 +223,11 @@ si_summary_full <- si_summary_subset %>%
   ) %>% 
   as.data.frame()
 
-# write.csv(si_summary_full, paste0(out_dir, "/si_summary_full.csv"))
+write.csv(si_summary_full, paste0(out_dir, "/si_summary_full.csv"))
 
 
 ############################################################
-
+# Plot of original base model vs v4 refinement
 si_0and4 <-  si_summary_full %>% filter(Refinement %in% 
                       c("V0_NoGIS_Unstrat","V4_NoGIS_Unstrat")) %>% 
           group_by(Refinement)
@@ -276,8 +275,6 @@ si_0and4 <-  si_summary_full %>% filter(Refinement %in%
          filename=paste0(out_dir, "/dotplot_0and4_fixed.png"))
 
 
-
-
 ############################################################
 ref_versions <-  si_summary_full %>% select(Refinement) %>% unique()
 
@@ -290,7 +287,6 @@ for (chosen_version in ref_versions$Refinement) {
     if (!dir.exists(out_dir)){dir.create(out_dir)}
     
     
-    
     sub <- si_summary_full %>% filter(Refinement==chosen_version)
     current <- si_summary_subset %>% filter(Refinement==chosen_version)
     write.csv(sub, 
@@ -299,7 +295,6 @@ for (chosen_version in ref_versions$Refinement) {
     write.csv(current, 
               paste0(out_dir, "/", chosen_version,
                      "_refined_si_full.csv"))
-    
     
     
     df_dots <- sub %>%
@@ -389,11 +384,4 @@ for (chosen_version in ref_versions$Refinement) {
     write.csv(cm_pivot_table_after, 
               paste0(cm_out_dir, "/CM_",chosen_model,
                      "_",this_SI,".csv"))
- 
-    # write_csv(cm_pivot_table, file=paste0(this_dir, "/confusion_matrix.csv"))
-    
-    
 }
-
-
-

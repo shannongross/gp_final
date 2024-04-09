@@ -9,10 +9,11 @@
 3.0_ModelPlots.R: Creates plots to compare results of preliminary models from previous
 step.
 
-4.0_ModelRefinements.R: Contains a function to manually refine the chosen model selected
-from previous step. More than one iteration of this script may be needed to try out
-all appropriate manual refinements. 
+4.0_ModelRefinements.R: Contains a function to manually refine the chosen model selected from previous step. More than one iteration of this script may be needed to try out all appropriate manual refinements. 
 
 5.0_SingleIndicators.R:
 
-6.0_SensitivityAnalysis.R
+6.0_SensitivityAnalysis.R : IN PROGRESS
+
+Final_Model_forWill.R: a simple script to reproduce/restore the final GP model 
+results. For use in web app development.

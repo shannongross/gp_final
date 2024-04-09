@@ -467,7 +467,7 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
      write_csv(cm_pivot_table, file=paste0(this_dir, "/confusion_matrix.csv"))
      
      # Saving on object in RData format
-     rdata_name <- paste0(this_dir, "/",  thisstep, "/RF_", chosen_model,
+     rdata_name <- paste0(this_dir, "/RF_", chosen_model,
                           "_", thisstep, ".rds")
      print(paste("Saving:", rdata_name))
      saveRDS(thismod, file=rdata_name)
