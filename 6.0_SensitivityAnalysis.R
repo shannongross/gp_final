@@ -399,6 +399,38 @@ plot(PI_permimp500,
 )
 
 
+partialdatap <- partial(RF, 
+                       pred.var = c(metric), 
+                       type= "classification",
+                       which.class="P",
+                       chull = TRUE)
+partialdatae <- partial(RF, 
+                        pred.var = c(metric), 
+                        type= "classification",
+                        which.class="E",
+                        chull = TRUE)
+partialdatai <- partial(RF, 
+                        pred.var = c(metric), 
+                        type= "classification",
+                        which.class="I",
+                        chull = TRUE)
+
+ggplot(data=partialdatae, aes(x=DifferencesInVegetation_score, y=yhat))+
+  geom_line(aes(color="E")) + 
+  geom_line(data=partialdatap, aes(x=DifferencesInVegetation_score, 
+                                   y=yhat, 
+                              color="P"))+ 
+  geom_rug(data=partialdatap, aes(color = "P"), 
+           sides = 'b', outside = F, alpha = 1/2, position = "jitter")+
+  geom_rug(data=partialdatai, aes(color = "E"), 
+           sides = 'b', outside=F, alpha = 1/2, position = "jitter")
+
+
+partialplot <- autoplot(partialdata,
+                        contour = TRUE,
+                        # pdp.size = 0.1,
+                        rug=TRUE, train = old_data)
+print(partialplot)
 
 # for (metric in current_metrics) {
 for ( metric in c( 
@@ -414,33 +446,48 @@ for ( metric in c(
   print(metric)
 
   # One var
-  partialdata <- partial(RF, pred.var = c(metric), chull = TRUE)
-  partialplot <- autoplot(partialdata,
-                          contour = TRUE,
-                          # pdp.size = 0.1,
-                          rug=TRUE, train = old_data)
-  partialplot <- partialplot +
+  partialdata_e <- partial(RF, 
+                         pred.var = c(metric), 
+                         type ="classification",
+                         which.class="E")
+  partialdata_p <- partial(RF, 
+                           pred.var = c(metric), 
+                           type ="classification",
+                           which.class="P")
+  partialplot <- ggplot(data=partialdata_e, 
+        aes(x=eval(parse(text = metric)),
+            y=yhat
+            ))+ geom_line(aes(color="E")) +
+        geom_line(data=partialdata_p, aes(
+            x=eval(parse(text = metric)), 
+            y=yhat, 
+            color="P"
+            )) +
+        geom_rug(data=partialdata_p, aes(color = "P"), 
+                 sides = 'b', outside = F, alpha = 1/2, position = "jitter")+
+        geom_rug(data=partialdata_e, aes(color = "E"), 
+                 sides = 'b', outside=F, alpha = 1/2, position = "jitter") +
     labs(title=paste("Sensitivity Analysis:", metric),
          subtitle="Partial Dependence Plot",
-         legend="")
+         legend="PDP", x="")
   print(partialplot)
   ggsave(partialplot, height=5, width=8, units="in", dpi=900,
          filename=paste0(out_dir, "/pdps/pdp_",metric,".png"))
 
-  # TODO: pdp only on TEST data?!
-  # Two Variables
-  var1 <- "SedimentOnPlantsDebris_score"
-  partialdata2 <- partial(RF, pred.var = c(var1, metric), chull = TRUE)
-  partialplot2 <- autoplot(partialdata2, contour = TRUE,
-                           rug=TRUE, train = old_data,
-                           legend.title = "Partial\ndependence")
-  partialplot2 <- partialplot2 +
-    labs(title=paste0("Sensitivity Analysis: ", var1, ", ", metric),
-         subtitle="Partial Dependence Plot",
-         legend="")
-  print(partialplot2)
-  ggsave(partialplot2, height=5, width=8, units="in", dpi=900,
-         filename=paste0(out_dir, "/pdps/pdp2_",var1,"_and_", metric,".png"))
+  # # TODO: pdp only on TEST data?!
+  # # Two Variables
+  # var1 <- "SedimentOnPlantsDebris_score"
+  # partialdata2 <- partial(RF, pred.var = c(var1, metric), chull = TRUE)
+  # partialplot2 <- autoplot(partialdata2, contour = TRUE,
+  #                          rug=TRUE, train = old_data,
+  #                          legend.title = "Partial\ndependence")
+  # partialplot2 <- partialplot2 +
+  #   labs(title=paste0("Sensitivity Analysis: ", var1, ", ", metric),
+  #        subtitle="Partial Dependence Plot",
+  #        legend="")
+  # print(partialplot2)
+  # ggsave(partialplot2, height=5, width=8, units="in", dpi=900,
+  #        filename=paste0(out_dir, "/pdps/pdp2_",var1,"_and_", metric,".png"))
 
 }
 ################################################################################ 
