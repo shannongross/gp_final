@@ -904,5 +904,3 @@ for (metric in current_metrics) {#c("BankWidthMean") c("TotalAbund_0_10")
          filename=paste0(out_dir, "/range_",metric,".png"))
   
 }
-
-
