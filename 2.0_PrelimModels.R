@@ -32,24 +32,24 @@ if (!dir.exists(models_dir)){dir.create(models_dir)}
 # case_list: which models to run. Uncomment ones you want to run.
 ################################################################################
 # name of directory to store these results
-model_version <- "DraftFinalModels2"
+model_version <- "FinalModelQC_Apr2024"
 
 # how many trees
 numOfTrees <- 1500 
 
 # models to run
 case_list <- c(
-  "BaseModel_Unstrat", #for reference only
-  "BaseModel_S",       #for reference only
-  "BaseModel_UNC",      #for reference only
+  # "BaseModel_Unstrat", #for reference only
+  # "BaseModel_S",       #for reference only
+  # "BaseModel_UNC",      #for reference only
 
-  "NoGIS_Unstrat",   #also, 2BMI limit? #more of a reference
-  "NoGIS_S",         #also, 2BMI limit?
-  "NoGIS_UNC",       #also, 2BMI limit?
-
-  "2GIS_Unstrat",    #also, 2BMI limit
-  "2GIS_UNC",        #also, 2BMI limit
-  "2GIS_S"           #also, 2BMI limit
+  "NoGIS_Unstrat"#,   #also, 2BMI limit? #more of a reference
+  # "NoGIS_S",         #also, 2BMI limit?
+  # "NoGIS_UNC",       #also, 2BMI limit?
+  # 
+  # "2GIS_Unstrat",    #also, 2BMI limit
+  # "2GIS_UNC",        #also, 2BMI limit
+  # "2GIS_S"           #also, 2BMI limit
 )
 
   
@@ -85,34 +85,7 @@ ngp_nogis_metrics <- (metrics_lookup %>% filter(NoGIS_UNC=="TRUE"))$Metric
 # candidate_list <- metrics_lookup$Metric
 metrics_gis_list <- (metrics_lookup %>% filter(MetricType =="Geospatial"))$Metric
 
-## ONLY ALLOW 2 FROM THIS LIST (TO DO) - ONLY IF THEY ARE DOMINATING
-# TODO: dont constrain by the ephemeral ones
 
-# # Peren candidates for strat models
-# subregion_peren_list <- c('ephemeral_ISAsubregion_abundance',
-#                          'ephemeral_ISAsubregion_taxa',
-#                          'ephinteph_ISAsubregion_abundance',
-#                          'ephinteph_ISAsubregion_taxa',
-#                          'perennial_ISAsubregion_abundance',
-#                          'perennial_ISAsubregion_taxa',
-#                          'perintper_ISAsubregion_abundance',
-#                          'perintper_ISAsubregion_taxa'
-# )
-# 
-# # Peren candidates for unstrat model
-# region_peren_list <- c('perennial_ISA_abundance',
-#                         'perintper_ISA_abundance',
-#                         'perennial_ISA_taxa',
-#                         'perintper_ISA_taxa',
-#                         'perennial_NC_abundance',
-#                         'perennial_NC_live_abundance',
-#                         'perennial_NC_taxa',
-#                         'ephemeral_ISA_abundance',
-#                         'ephemeral_ISA_taxa',
-#                         'ephinteph_ISA_abundance',
-#                         'ephinteph_ISA_taxa'
-#                        )
-# all_peren_list <- c(subregion_peren_list,region_peren_list)
 ################################ GET MODEL DATA ################################
 # Stored in csv file
 #
@@ -133,7 +106,6 @@ df_input <- df_input %>% mutate( Strata = Region_detail)
 df_input_copy <- df_input
 
 # Drop any rows with NaN (there shouldn't be any at this point)
-# df_input$Disturbances[is.na(df_input$Disturbances)]<-"empty"
 print(paste("Number of rows:", nrow(df_input_copy)))
 df_input_copy <- df_input_copy %>% na.omit()
 print(paste("Number of rows after dropping nans:",nrow(df_input_copy)))
@@ -407,7 +379,7 @@ make_models <- function (case, numTrees) {
     
     cat(paste("topGIS: ", topGIS), file=log_con, append = TRUE, sep="\n")
 
-    ############################### MAKE RF INITIAL############################# 
+    ############################### MAKE RF INITIAL ############################# 
     set.seed(3)
     RF_initial <- randomForest(x=X_train,
                        y=y_train,

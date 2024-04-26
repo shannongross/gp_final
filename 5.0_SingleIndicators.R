@@ -17,8 +17,10 @@ library(stringr)
 library(readxl)
 library(reshape2)
 
-model_version <- "DraftFinalModels2"
+# model_version <- "DraftFinalModels2"
+model_version <- "FinalModelQC_Apr2024"
 chosen_model <- "NoGIS_Unstrat"
+refinement_chosen <- "V5_NoGIS_Unstrat"
 
 ########################## Get Data ############################################
 # Set your working directory relative to this script
@@ -37,10 +39,15 @@ parent_path <- paste0(HOME_DIR, "/output/models/", model_version, "/",
 out_dir <- paste0(parent_path, "/SI")
 if (!dir.exists(out_dir)){dir.create(out_dir)}
 
+# chosen_ref_dir <- paste0(parent_path,"/", chosen_version, "/final_w_SI")
+# if (!dir.exists(chosen_ref_dir)){dir.create(chosen_ref_dir)}
+
+
 refined_files <- list.files(parent_path, full.names = T, all.files = TRUE,
-                      recursive = T, pattern = "refined_results_summary.csv")
+                      # recursive = T, pattern = "refined_results_summary.csv")
+                      recursive = T, pattern = "full_results.csv")
 df_results <- do.call(rbind, lapply(refined_files, read.csv))
-write.csv(df_results, paste0(out_dir, "/all_refined_results.csv"))
+write.csv(df_results, paste0(out_dir, "/all_refinement_results.csv"))
 
 
 info_list <- c("ParentGlobalID","CollectionDate","Region",
@@ -227,21 +234,21 @@ write.csv(si_summary_full, paste0(out_dir, "/si_summary_full.csv"))
 
 
 ############################################################
-# Plot of original base model vs v4 refinement
-si_0and4 <-  si_summary_full %>% filter(Refinement %in% 
-                      c("V0_NoGIS_Unstrat","V4_NoGIS_Unstrat")) %>% 
+# Plot of original base model vs chosen refinement
+si_0andRefined <-  si_summary_full %>% filter(Refinement %in% 
+                      c("V0_NoGIS_Unstrat",refinement_chosen)) %>% 
           group_by(Refinement)
-  df_dots_0and4  <- si_0and4 %>%
+  df_dots_0andRefined  <- si_0andRefined %>%
     select(-n_correct_PvIvE, -n_correct_EvALI) %>%
     pivot_longer(cols=starts_with("pct"), values_to="Accuracy", 
                  names_to="Measure") %>% 
     mutate(Measure=str_sub(Measure, start=13)) 
   
   
-  df_dots_0and4$Measure <- factor(df_dots_0and4$Measure,
+  df_dots_0andRefined$Measure <- factor(df_dots_0andRefined$Measure,
                             levels=c("PvIvE","EvALI","PvIwet","IvEdry" ))
   
-  df_dots_0and4$Dataset <- factor(df_dots_0and4$Dataset, 
+  df_dots_0andRefined$Dataset <- factor(df_dots_0andRefined$Dataset, 
                             levels=c("Testing","Training"))
   label_names <- c(
     `PvIvE` = "Accuracy\nPvIvE",
@@ -249,7 +256,7 @@ si_0and4 <-  si_summary_full %>% filter(Refinement %in%
     `PvIwet` = "Accuracy\nPvIwet",
     `IvEdry` = "Accuracy\nIvEdry"
   )
-  dotplot_0and4 <- ggplot(data=df_dots_0and4, 
+  dotplot_0andRefined <- ggplot(data=df_dots_0andRefined, 
                      aes(x=Region_detail, y=Accuracy))+
     geom_jitter(aes(size=Dataset, color=Region_detail, shape=Refinement), 
                 width=0.04, height=0)+
@@ -267,15 +274,15 @@ si_0and4 <-  si_summary_full %>% filter(Refinement %in%
                labeller=as_labeller(label_names))+
     coord_flip()+
     xlab("")+
-    labs(title=paste0("Summary of Original Unstrat_NoGIS vs Refined V4 by Strata"))+
+    labs(title=paste0("Summary of Original Unstrat_NoGIS vs ", refinement_chosen, " by Strata"))+
     scale_y_continuous(limits=c(0,1), breaks=c(0,.5,1), name="Performance")+
     theme_bw()
-  dotplot_0and4
-  ggsave(dotplot_0and4, height=4, width = 9, units="in", dpi=900,
-         filename=paste0(out_dir, "/dotplot_0and4_fixed.png"))
+  dotplot_0andRefined
+  ggsave(dotplot_0andRefined, height=4, width = 9, units="in", dpi=900,
+         filename=paste0(out_dir, "/dotplot_0andRefined_fixed.png"))
 
 
-############################################################
+##########################################################################
 ref_versions <-  si_summary_full %>% select(Refinement) %>% unique()
 
 for (chosen_version in ref_versions$Refinement) {
@@ -331,7 +338,7 @@ for (chosen_version in ref_versions$Refinement) {
                  labeller=as_labeller(label_names))+
       coord_flip()+
       xlab("")+
-      labs(title=paste0("Summary of Refined Model (",chosen_version,") by Strata"))+
+      labs(title=paste0("Summary of Refined Model (",refinement_chosen,") by Strata"))+
       # scale_y_continuous(limits=c(0,1), breaks=c(0,.5,1), name="Performance")+
       theme_bw()
     dotplot1

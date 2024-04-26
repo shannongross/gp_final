@@ -43,43 +43,58 @@ df_input$Region_detail <- as.factor(df_input$Region_detail)
 # Create Strata column
 df_input <- df_input %>% mutate( Strata = Region_detail)
 
-# Separate datasets
-df_test <- df_input %>% filter(Dataset=="Testing")
-df_aug_train <- df_input %>% filter(Dataset=="Training")
 
 
 ################################## ADDITIONAL COLUMNS ##########################
 # CREATE BINS/MODIFY EXISTING
 ################################################################################
 df_input <- df_input %>% mutate(
-    BankWidth_10 = case_when(BankWidthMean<10~0, T~1),
-    TotalAbund_8 = case_when(TotalAbundance<8~0, T~1),
-    TotalAbund_8_24 = case_when(TotalAbundance<8~0,  
-        ((TotalAbundance>=8) & (TotalAbundance<=24)~1),
+    BankWidth_10 = case_when(BankWidthMean<10~0, T~1), #BankWidthMean: less than 10, gte 10
+    TotalAbund_8 = case_when(TotalAbundance<8~0, T~1), #TotalAbundance: less than 8, gte 8
+    TotalAbund_8_24 = case_when(TotalAbundance<8~0,  #TotalAbundance: less than 8, 8 to 23, 24+
+        ((TotalAbundance>=8) & (TotalAbundance<24)~1),
           TotalAbundance>=24~2), #performed same as TotalAbund_8
-    TotalAbund_0_8_24 = case_when(TotalAbundance==0~0, 
-                                  ((TotalAbundance>0) & (TotalAbundance<=8)~1),
-                                ((TotalAbundance>=8) & (TotalAbundance<=24)~2),
+    TotalAbund_0_8_24 = case_when(TotalAbundance==0~0, #TotalAbundance: 0, 1-8, 8-23, 24+
+                                  ((TotalAbundance>0) & (TotalAbundance<8)~1),
+                                ((TotalAbundance>=8) & (TotalAbundance<24)~2),
                                 TotalAbundance>=24~3),
-    TotalAbund_0_10 = case_when(TotalAbundance==0~0, 
-                                  ((TotalAbundance>0) & (TotalAbundance<=10)~1),
+    TotalAbund_0_10 = case_when(TotalAbundance==0~0, #TotalAbundance: 0, 1-9, 10+
+                                  ((TotalAbundance>0) & (TotalAbundance<10)~1),
                                   TotalAbundance>=10~2),
     UplandRooted_PA = case_when(UplandRootedPlants_score<3~0, T~1),
     ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),
     ephISAabund_0_2 = case_when(ephinteph_ISA_abundance==0~0, 
-                ((ephinteph_ISA_abundance>0) & (ephinteph_ISA_abundance<=2)~1),
+                ephinteph_ISA_abundance==1~1,
                 ephinteph_ISA_abundance>=2~2),
-    hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1),
-    hydrophytes_0_2 = case_when(hydrophytes_present==0~0, 
-                              ((hydrophytes_present>0) & (hydrophytes_present<=3)~1),
-                              hydrophytes_present>=3~2),
+    hydrophytes_2 = case_when(hydrophytes_present<2~0, T~1),
+    hydrophytes_0_2 = case_when(hydrophytes_present==0~0,
+                              (hydrophytes_present==1~1),
+                              hydrophytes_present>=2~2),
+    
+    # #INCORRECT - CHANGES REFINEMENT STATS
+    # hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1),
+    # hydrophytes_0_2 = case_when(hydrophytes_present==0~0, 
+    #                             ((hydrophytes_present>0) & (hydrophytes_present<=3)~1),
+    #                             hydrophytes_present>=3~2),
+    # #
+    
     DiffInVeg_1.5 = case_when(DifferencesInVegetation_score<3~0, T~1)
   )  
-new_preds_list <- c("BankWidth_10","TotalAbund_8","TotalAbund_8_24",
-                    "TotalAbund_0_8_24","TotalAbund_0_10",
+
+
+# tmp <- df_input[,c("SiteCode", "ephinteph_ISA_abundance","ephISAabund_PA")]
+# tmp %>% filter(TotalAbundance==8)
+  
+new_preds_list <- c("BankWidth_10",
+                    "TotalAbund_8",
+                    "TotalAbund_8_24",
+                    "TotalAbund_0_8_24",
+                    "TotalAbund_0_10",
                     "UplandRooted_PA",
-                    "ephISAabund_PA", "ephISAabund_0_2",
-                    "hydrophytes_2", "hydrophytes_0_2",
+                    "ephISAabund_PA", 
+                    "ephISAabund_0_2",
+                    "hydrophytes_2", 
+                    "hydrophytes_0_2",
                     "DiffInVeg_1.5")
 
 #plotting function
@@ -130,7 +145,8 @@ ggsummaryPlot <- function(df){
 #######################################################################
 # Stepwise refinement of GP model
 #######################################################################
-model_version <- "DraftFinalModelsQC" 
+# model_version <- "DraftFinalModelsQC" 
+model_version <- "FinalModelQC_Apr2024"
 chosen_model <- "NoGIS_Unstrat"
 plotwidth <- 10.5
 numTrees <- 1500
@@ -277,9 +293,60 @@ cm_pivot_table <- melted %>%
 
 write_csv(cm_pivot_table, file=paste0(this_dir, "/confusion_matrix.csv"))
 
-# # Saving on object in RData format
-# rdata_name <- paste0("RF_", case, ".rds")
-# saveRDS(RF, file = paste0(this_dir, "/",  case, "/", rdata_name))
+############## SMG: added to store full results to debug dir
+debug_dir <- paste0(this_dir,"/debug")
+if (!dir.exists(debug_dir)){dir.create(debug_dir)}
+
+train_results_full <- tibble(df_MODEL) %>%
+  add_column(RF_Prediction_Majority = thismod$predicted) %>%
+  bind_cols( predict(thismod, type="prob") %>% 
+               as_tibble())
+test_results_full <- tibble(df_TESTING) %>%
+  add_column(pred) %>%
+  rename(RF_Prediction_Majority="pred") %>%
+  bind_cols(predict(thismod, newdata=new_data, 
+                    type="prob") %>% as_tibble()) 
+full_results_full <- rbind(train_results_full, test_results_full)
+refined_results_full <- full_results_full %>% mutate(
+  #Reclassify with 50% minimum probability
+  RF_Prediction_50=case_when(
+    E>=.5~"E",
+    I>=.5~"I",
+    P>=.5~"P",
+    P>E~"ALI",
+    E>P~"LTP",
+    P==E & I>P~"NMI", 
+    P==E & I<=P~"NMI",
+    T~"Other"),
+  #Identify correct classifications
+  EvALI_correct = case_when(
+    Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
+    Class %in% c("I","P") & RF_Prediction_50 %in% c("I","P","ALI")~T,
+    T~F),
+  PvIvE_correct = case_when(
+    Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
+    Class %in% c("I") & RF_Prediction_50 %in% c("I")~T,
+    Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
+    T~F),
+  #dont count P in EvI Dry!!!
+  EvIdry_correct = case_when(
+    Class %in% c("E") & !Wet & RF_Prediction_50 %in% c("E")~T,
+    Class %in% c("I") & !Wet & RF_Prediction_50 %in% c("I")~T,
+    T~F),
+  #add PvLTP
+  PvLTP_correct = case_when(
+    Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
+    Class %in% c("I","E") & RF_Prediction_50 %in% c("I","E","LTP")~T,
+    T~F),
+  #add PvIwet
+  PvIwet_correct = case_when(
+    Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
+    Class %in% c("I","P") & RF_Prediction_50 %in% c("I","P","ALI")~T,
+    T~F),
+  Refinement=paste0(refinement_version)
+)
+write_csv(refined_results_full, file=paste0(debug_dir,"/full_results.csv"))
+#################################
 
 # ################ For all models, summarize:
 ## final summary
@@ -348,6 +415,8 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
      if (!dir.exists(this_dir)){dir.create(this_dir)}
      print(paste("BASE DIR:", BASE_DIR))
      print(paste("this dir:", this_dir))
+     debug_dir <- paste0(this_dir,"/debug")
+     if (!dir.exists(debug_dir)){dir.create(debug_dir)}
      
      # Create logfile
      log_con <- file(paste0(this_dir,"/V", thisstep, ".log"), open="w")
@@ -378,6 +447,8 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
          predict(thismod, type="prob") %>% 
            as_tibble() #Generate the prediction probabilities and bind to the first column
        ) #check bind cols
+     
+     
      
      # define new data frame
      new_data <- df_TESTING[, c("Class", field_model_vars)]
@@ -472,6 +543,63 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
      print(paste("Saving:", rdata_name))
      saveRDS(thismod, file=rdata_name)
      
+     
+     ############## SMG: added to store full results to debug dir
+     train_results_full <- tibble(df_MODEL) %>%
+       add_column(RF_Prediction_Majority = thismod$predicted) %>%
+       bind_cols( predict(thismod, type="prob") %>% 
+                    as_tibble())
+     test_results_full <- tibble(df_TESTING) %>%
+       add_column(pred) %>%
+       rename(RF_Prediction_Majority="pred") %>%
+       bind_cols(predict(thismod, newdata=new_data, 
+                         type="prob") %>% as_tibble()) 
+     full_results_full <- rbind(train_results_full, test_results_full)
+     refined_results_full <- full_results_full %>% mutate(
+       #Reclassify with 50% minimum probability
+       RF_Prediction_50=case_when(
+         E>=.5~"E",
+         I>=.5~"I",
+         P>=.5~"P",
+         P>E~"ALI",
+         E>P~"LTP",
+         P==E & I>P~"NMI", 
+         P==E & I<=P~"NMI",
+         T~"Other"),
+       #Identify correct classifications
+       EvALI_correct = case_when(
+         Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
+         Class %in% c("I","P") & RF_Prediction_50 %in% c("I","P","ALI")~T,
+         T~F),
+       PvIvE_correct = case_when(
+         Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
+         Class %in% c("I") & RF_Prediction_50 %in% c("I")~T,
+         Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
+         T~F),
+       #dont count P in EvI Dry!!!
+       EvIdry_correct = case_when(
+         Class %in% c("E") & !Wet & RF_Prediction_50 %in% c("E")~T,
+         Class %in% c("I") & !Wet & RF_Prediction_50 %in% c("I")~T,
+         T~F),
+       #add PvLTP
+       PvLTP_correct = case_when(
+         Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
+         Class %in% c("I","E") & RF_Prediction_50 %in% c("I","E","LTP")~T,
+         T~F),
+       #add PvIwet
+       PvIwet_correct = case_when(
+         Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
+         Class %in% c("I","P") & RF_Prediction_50 %in% c("I","P","ALI")~T,
+         T~F),
+       Refinement=paste0(refinement_version)
+     )
+     write_csv(refined_results_full, file=paste0(debug_dir,"/full_results.csv"))
+     #################################
+     
+     
+     
+     
+     
      # ################ For all models, summarize:
      ## final summary
      refined_stats <- refined_results %>%
@@ -521,7 +649,8 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
        )
      }
      print(refined_model_summary)
-     write_csv(refined_model_summary, file=paste0(this_dir,"/refined_model_summary.csv"))
+     write_csv(refined_model_summary, file=paste0(this_dir,
+                                                  "/refined_model_summary.csv"))
      
      plot_steps <- ggsummaryPlot(refined_model_summary) + labs()
      plot_steps
@@ -694,5 +823,8 @@ refined_model_summary <- make_refinements(thisstep=7,
                     descript=paste(sort(this_model_vars), collapse="\n"),
                     field_model_vars=this_model_vars
 )
+
+
+
 
 

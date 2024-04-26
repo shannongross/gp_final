@@ -302,7 +302,7 @@ metric_summary <- predictor_summary_passed_rf %>%
       PassPvLTP_t_abs = PvLTP_t_abs>2,
       PassEvIdry_t_abs = EvIdry_t_abs>2,
       PassPvIWet_t_abs = PvIWet_t_abs>2,
-      Passrf_MDA = rf_MDA>quantile(summary_copy$rf_MDA, na.rm=T, probs=.75),
+      Passrf_MDA = rf_MDA>quantile(predictor_summary_passed_rf$rf_MDA, na.rm=T, probs=.75),
       PassScreens = 
         PctDom<0.95 & #Must have at least 5% variation
         ##And must be in top quartile of responsiveness measures

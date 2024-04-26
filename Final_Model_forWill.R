@@ -1,5 +1,5 @@
 ################################################################################
-# Restore or recreate the final model (No GIS, Unstratified, v4 refinement)
+# Restore or recreate the final model (No GIS, Unstratified, v5 refinement)
 # Generate predictions on new data
 # Information on final metrics used
 #
@@ -30,12 +30,13 @@ df_input <- df_input %>% mutate( Strata = Region_detail)
 ############################## CREATE NEW METRICS ##############################
 df_input <- df_input %>% mutate(
   TotalAbund_0_10 = case_when(TotalAbundance==0~0, 
-                              ((TotalAbundance>0) & (TotalAbundance<=10)~1),
+                              ((TotalAbundance>0) & (TotalAbundance<10)~1),
                               TotalAbundance>=10~2),
   UplandRooted_PA = case_when(UplandRootedPlants_score<3~0, T~1),
   ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),
-  hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1)
+  hydrophytes_2 = case_when(hydrophytes_present<2~0, T~1)
 ) 
+
 
 # Separate datasets
 df_MODEL <- df_input %>% filter(Dataset=="Training")
@@ -51,7 +52,7 @@ current_metrics <- c( "BankWidthMean",
                       "DifferencesInVegetation_score",
                       "RifflePoolSeq_score",
                       "SedimentOnPlantsDebris_score", 
-                      "ephISAabund_PA", 
+                      # "ephISAabund_PA", ##REMOVE
                       "UplandRooted_PA",
                       "hydrophytes_2",
                       "TotalAbund_0_10" )
@@ -105,14 +106,6 @@ current_metrics <- c( "BankWidthMean",
 #       the length of the stream. Midpoint scores (e.g., 0.25, 0.75, and 1.25) 
 #       are possible.
 #
-# ephISAabund_PA: This is a "presence/absence" metric. It's a refined metric (ie 
-#  we developed it later, during model development) based off of the metric 
-# "ephinteph_ISA_abundance", which was an integer count. The definition of 
-#  ephinteph_ISA_abundance is: 
-#       Total abundance of Indicator Species Analysis-based ephemeral & 
-#       intermittent indicator taxa observed in the reach (for East, West or 
-#       Great Plains)
-#
 # UplandRooted_PA: This is a "presence/absence" metric. It's a refined metric (ie 
 #  we developed it later, during model development) based off of the metric 
 #  UplandRootedPlants_score, which was an ordinal metric. The definition of 
@@ -124,7 +117,7 @@ current_metrics <- c( "BankWidthMean",
 #       (e.g., 0.5, 1.5, and 2.5) are possible.
 #
 # hydrophytes_2: This is a "binned" metric - ie we refined the original continuous
-#  metric (hydrophytes_present) into 2 groups: less than 3 hydrophytes or 3 or 
+#  metric (hydrophytes_present) into 2 groups: less than 2 hydrophytes or 2 or 
 #  more hydrophytes. The definition of hydrophytes_present is:
 #       Number of hydrophytic plant species (FACW, OBL or SAV) observed within 
 #       the study reach channel and 1/2 channel width of the stream on either bank
@@ -152,7 +145,7 @@ RF <- randomForest(Class~.,
                    importance=T,
                    proximity=T)
 # ...Restore the object
-RF <- readRDS("RF_NoGIS_Unstrat_4.rds")
+RF <- readRDS("RF_NoGIS_Unstrat_5.rds")
 
 
 set.seed(1111)
@@ -248,3 +241,4 @@ cm_pivot_table <- melted %>%
     values_from = value
   ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI', 'P', 'LTP', 'NMI')))
 
+cm_pivot_table

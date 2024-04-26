@@ -1,6 +1,6 @@
 ################################################################################
 # This script performs a Sensitivity Analsysis on the errors for the final GP 
-# model hosen (V4 refined)
+# model chosen (V5 refined)
 #
 # Note: last input dataset update from Rafi on 25 Jan 2024
 ################################################################################
@@ -23,10 +23,10 @@ library(readxl)
 
 graphics.off()
 
-model_version <- "DraftFinalModels2"
+model_version <- "FinalModelQC_Apr2024"
 chosen_model <- "NoGIS_Unstrat"
-chosen_version <- "V4"
-CURRENT_REGION_DISPLAY <- "Great Plains V4"
+chosen_version <- "V5"
+CURRENT_REGION_DISPLAY <- "Great Plains V5"
 plotwidth <- 10.5
 numTrees <- 1500
 
@@ -45,28 +45,31 @@ out_dir <- paste0(parent_path, "/sensitivity_analyis")
 if (!dir.exists(out_dir)){dir.create(out_dir)}
 
 print(paste("Your output dir has been set to:", out_dir))
-
+# Get results csv
+df_refined_results <- read_csv(paste0(parent_path,"/debug/full_results.csv"))
+# Explicitly set datatypes
+df_refined_results$Class <- as.factor(df_refined_results$Class)
 ################################ GET MODEL DATA ################################
 
-# Get input dataset (contains augmented training, testing data)
-df_input <- read_csv(paste0(HOME_DIR,"/input/processed/df_model_aug.csv"))
-
+# # Get input dataset (contains augmented training, testing data)
+# df_input <- read_csv(paste0(HOME_DIR,"/input/processed/df_model_aug.csv"))
+# 
 # Explicitly set datatypes
-df_input$Class <- as.factor(df_input$Class)
-df_input$Region_detail <- as.factor(df_input$Region_detail)
+# df_input$Class <- as.factor(df_input$Class)
+# df_input$Region_detail <- as.factor(df_input$Region_detail)
 
-# Create Strata column
-df_input <- df_input %>% mutate(Strata = Region_detail)
-
-############################## CREATE NEW METRICS ##############################
-df_input <- df_input %>% mutate(
-  TotalAbund_0_10 = case_when(TotalAbundance==0~0, 
-                              ((TotalAbundance>0) & (TotalAbundance<=10)~1),
-                              TotalAbundance>=10~2),
-  UplandRooted_PA = case_when(UplandRootedPlants_score<3~0, T~1),
-  ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),
-  hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1)
-)  
+# # Create Strata column
+# df_input <- df_input %>% mutate(Strata = Region_detail)
+# 
+# ############################## CREATE NEW METRICS ##############################
+# df_input <- df_input %>% mutate(
+#   TotalAbund_0_10 = case_when(TotalAbundance==0~0, 
+#                               ((TotalAbundance>0) & (TotalAbundance<=10)~1),
+#                               TotalAbundance>=10~2),
+#   UplandRooted_PA = case_when(UplandRootedPlants_score<3~0, T~1),
+#   # ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),
+#   hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1)
+# )  
 
 ############################## CURRENT METRICS #################################
 #NOTE: feed the list of "current metrics" in the same order that the model was
@@ -78,7 +81,7 @@ current_metrics <- c( "BankWidthMean",
                       "DifferencesInVegetation_score",
                       "RifflePoolSeq_score",
                       "SedimentOnPlantsDebris_score", 
-                      "ephISAabund_PA", 
+                      # "ephISAabund_PA", 
                       "UplandRooted_PA",
                       "hydrophytes_2",
                       "TotalAbund_0_10" )
@@ -88,8 +91,8 @@ current_metrics <- c( "BankWidthMean",
 
 ################################ CREATE FAKE DATA ###################################
 set.seed(1111)
-df_MODEL <- df_input %>% filter(Dataset=="Training")
-df_TEST <- df_input %>% filter(Dataset=="Testing")
+df_MODEL <- df_refined_results %>% filter(Dataset=="Training")
+df_TEST <- df_refined_results %>% filter(Dataset=="Testing")
 X_train  <- df_MODEL[, current_metrics]
 y_train = df_MODEL$Class
 X_test<- df_TEST[, current_metrics]
@@ -105,9 +108,9 @@ RF_initial <- randomForest(x=X_train,
 options(dplyr.summarise.inform = FALSE)
 
 # define a small dataset to do this perturbation on. 
-testsample <- sample_n(df_TEST, 5) #Create fake data for 5 random sites
+testsample <- sample_n(df_TEST, 7) #Create fake data for 5 random sites
 testsample <- testsample[, c("ParentGlobalID","SiteCode","Class", current_metrics)]
-
+testsample
 
 
 ######################### Perturb input data (automatically) ###################
@@ -200,9 +203,9 @@ res_rif <- sensitivity_analysis_autobound(
 res_sed <- sensitivity_analysis_autobound(
   perturbed_metric="SedimentOnPlantsDebris_score",
   nsteps=4)
-res_eph <- sensitivity_analysis_autobound(
-  perturbed_metric="ephISAabund_PA",
-  nsteps=2)
+# res_eph <- sensitivity_analysis_autobound(
+#   perturbed_metric="ephISAabund_PA",
+#   nsteps=2)
 res_up <- sensitivity_analysis_autobound(
   perturbed_metric="UplandRooted_PA",
   nsteps=2)
@@ -213,14 +216,15 @@ res_tot <- sensitivity_analysis_autobound(
   perturbed_metric="TotalAbund_0_10",
   nsteps=3)
 #Combine all the fake data generate above into a single dataframe
-data <- rbind(res_dif, res_ban, res_sub, res_rif, res_sed, res_eph, res_up,
-              res_hyd, res_tot)
+data <- rbind(res_dif, res_ban, res_sub, res_rif, res_sed, #res_eph, 
+              res_up, res_hyd, res_tot)
 
 #Loop through each metric in the fake datasets above and plot 
 for (metric in current_metrics) {#c("BankWidthMean")
   print(metric)
   
-  sa_data <- data%>%filter(Metric_Perturbed==metric)%>%group_by(ParentGlobalID)
+  sa_data <- data%>%filter(Metric_Perturbed==metric)%>%
+    group_by(ParentGlobalID)
   sa_data$Original_RF_Prediction_50 <- as.factor(
     sa_data$Original_RF_Prediction_50)
   
@@ -247,7 +251,7 @@ for (metric in current_metrics) {#c("BankWidthMean")
     theme_bw() +
     theme(legend.position="bottom")
   print(dotplot1)
-  ggsave(dotplot1, height=8, width=6, units="in", dpi=900,
+  ggsave(dotplot1, height=11.2, width=7, units="in", dpi=900,
          filename=paste0(out_dir, "/",metric,".png"))
   
 }
@@ -343,6 +347,283 @@ corrplot(
 )
 ################################################################################ 
 
+
+
+############################ Agg perturb figure ################################
+gp_subset <- df_refined_results[,  c("ParentGlobalID","SiteCode","Class", 
+                                     "RF_Prediction_50", current_metrics)]
+gp_subset_crossed <-crossing(Change = factor(c(
+  "Dec10", "Dec09", "Dec08", "Dec07","Dec06",
+  "Dec05", "Dec04", "Dec03", "Dec02","Dec01",
+  "Unchanged",
+  "Inc01","Inc02","Inc03","Inc04","Inc05",
+  "Inc06","Inc07","Inc08","Inc09","Inc10"),
+  levels = c("Dec10", "Dec09", "Dec08", "Dec07","Dec06",
+             "Dec05", "Dec04", "Dec03", "Dec02","Dec01",
+             "Unchanged",
+             "Inc01","Inc02","Inc03","Inc04","Inc05",
+             "Inc06","Inc07","Inc08","Inc09","Inc10")),
+  Indicator=current_metrics) %>%
+  crossing(gp_subset) %>%
+  mutate(DifferencesInVegetation_score = 
+           case_when(Indicator!="DifferencesInVegetation_score"~DifferencesInVegetation_score,
+                     Change=="Dec05"~DifferencesInVegetation_score-2.5,
+                     Change=="Dec04"~DifferencesInVegetation_score-2,
+                     Change=="Dec03"~DifferencesInVegetation_score-1.5,
+                     Change=="Dec02"~DifferencesInVegetation_score-1,
+                     Change=="Dec01"~DifferencesInVegetation_score-0.5,
+                     Change=="Unchanged"~DifferencesInVegetation_score,
+                     Change=="Inc01"~DifferencesInVegetation_score+.5,
+                     Change=="Inc02"~DifferencesInVegetation_score+1,
+                     Change=="Inc03"~DifferencesInVegetation_score+1.5,
+                     Change=="Inc04"~DifferencesInVegetation_score+2,
+                     Change=="Inc05"~DifferencesInVegetation_score+2.5,
+                     T~NA_real_),
+         
+         SubstrateSorting_score = 
+           case_when(Indicator!="SubstrateSorting_score"~SubstrateSorting_score,
+                     Change=="Dec05"~SubstrateSorting_score-2.5,
+                     Change=="Dec04"~SubstrateSorting_score-2,
+                     Change=="Dec03"~SubstrateSorting_score-1.5,
+                     Change=="Dec02"~SubstrateSorting_score-1,
+                     Change=="Dec01"~SubstrateSorting_score-0.5,
+                     Change=="Unchanged"~SubstrateSorting_score,
+                     Change=="Inc01"~SubstrateSorting_score+.5,
+                     Change=="Inc02"~SubstrateSorting_score+1,
+                     Change=="Inc03"~SubstrateSorting_score+1.5,
+                     Change=="Inc04"~SubstrateSorting_score+2,
+                     Change=="Inc05"~SubstrateSorting_score+2.5,
+                     T~NA_real_),
+         
+         SedimentOnPlantsDebris_score = 
+           case_when(Indicator!="SedimentOnPlantsDebris_score"~SedimentOnPlantsDebris_score,
+                     Change=="Dec06"~SedimentOnPlantsDebris_score-1.5,
+                     Change=="Dec05"~SedimentOnPlantsDebris_score-1.25,
+                     Change=="Dec04"~SedimentOnPlantsDebris_score-1,
+                     Change=="Dec03"~SedimentOnPlantsDebris_score-0.75,
+                     Change=="Dec02"~SedimentOnPlantsDebris_score-0.5,
+                     Change=="Dec01"~SedimentOnPlantsDebris_score-0.25,
+                     Change=="Unchanged"~SedimentOnPlantsDebris_score,
+                     Change=="Inc01"~SedimentOnPlantsDebris_score+0.25,
+                     Change=="Inc02"~SedimentOnPlantsDebris_score+0.5,
+                     Change=="Inc03"~SedimentOnPlantsDebris_score+0.75,
+                     Change=="Inc04"~SedimentOnPlantsDebris_score+1,
+                     Change=="Inc05"~SedimentOnPlantsDebris_score+1.25,
+                     Change=="Inc06"~SedimentOnPlantsDebris_score+1.5,
+                     T~NA_real_),
+         # AlgalCover_LiveOrDead_NoUpstream = 
+         #   case_when(Indicator!="AlgalCover_LiveOrDead_NoUpstream"~AlgalCover_LiveOrDead_NoUpstream,
+         #             Change=="Dec05"~AlgalCover_LiveOrDead_NoUpstream-5,
+         #             Change=="Dec04"~AlgalCover_LiveOrDead_NoUpstream-4,
+         #             Change=="Dec03"~AlgalCover_LiveOrDead_NoUpstream-3,
+         #             Change=="Dec02"~AlgalCover_LiveOrDead_NoUpstream-2,
+         #             Change=="Dec01"~AlgalCover_LiveOrDead_NoUpstream-1,
+         #             Change=="Unchanged"~AlgalCover_LiveOrDead_NoUpstream,
+         #             Change=="Inc01"~AlgalCover_LiveOrDead_NoUpstream+1,
+         #             Change=="Inc02"~AlgalCover_LiveOrDead_NoUpstream+2,
+         #             Change=="Inc03"~AlgalCover_LiveOrDead_NoUpstream+3,
+         #             Change=="Inc04"~AlgalCover_LiveOrDead_NoUpstream+4,
+         #             Change=="Inc05"~AlgalCover_LiveOrDead_NoUpstream+5,
+         #             T~NA_real_),
+         BankWidthMean = 
+           case_when(Indicator!="BankWidthMean"~BankWidthMean,
+                     
+                     Change=="Dec09"~BankWidthMean*.1,
+                     Change=="Dec08"~BankWidthMean*.2,
+                     Change=="Dec07"~BankWidthMean*.3,
+                     Change=="Dec06"~BankWidthMean*.4,
+                     Change=="Dec05"~BankWidthMean*.5,
+                     Change=="Dec04"~BankWidthMean*.6,
+                     Change=="Dec03"~BankWidthMean*.7,
+                     Change=="Dec02"~BankWidthMean*.8,
+                     Change=="Dec01"~BankWidthMean*.9,
+                     Change=="Unchanged"~BankWidthMean,
+                     Change=="Inc01"~BankWidthMean*1.1,
+                     Change=="Inc02"~BankWidthMean*1.2,
+                     Change=="Inc03"~BankWidthMean*1.3,
+                     Change=="Inc04"~BankWidthMean*1.4,
+                     Change=="Inc05"~BankWidthMean*1.6,
+                     Change=="Inc06"~BankWidthMean*1.7,
+                     Change=="Inc07"~BankWidthMean*1.8,
+                     Change=="Inc08"~BankWidthMean*1.9,
+                     Change=="Inc09"~BankWidthMean*2,
+                     T~NA_real_),
+         UplandRooted_PA =
+           case_when(Indicator!="UplandRooted_PA"~UplandRooted_PA,
+                     Change=="Dec01"~UplandRooted_PA-1,
+                     Change=="Unchanged"~UplandRooted_PA,
+                     Change=="Inc01"~UplandRooted_PA+1,
+                     T~NA_real_),
+         hydrophytes_2 =
+           case_when(Indicator!="hydrophytes_2"~hydrophytes_2,
+                     Change=="Dec01"~hydrophytes_2-1,
+                     Change=="Unchanged"~hydrophytes_2,
+                     Change=="Inc01"~hydrophytes_2+1,
+                     T~NA_real_),
+         RifflePoolSeq_score = 
+           case_when(Indicator!="RifflePoolSeq_score"~RifflePoolSeq_score,
+                     Change=="Dec05"~RifflePoolSeq_score-2.5,
+                     Change=="Dec04"~RifflePoolSeq_score-2,
+                     Change=="Dec03"~RifflePoolSeq_score-1.5,
+                     Change=="Dec02"~RifflePoolSeq_score-1,
+                     Change=="Dec01"~RifflePoolSeq_score-0.5,
+                     Change=="Unchanged"~RifflePoolSeq_score,
+                     Change=="Inc01"~RifflePoolSeq_score+.5,
+                     Change=="Inc02"~RifflePoolSeq_score+1,
+                     Change=="Inc03"~RifflePoolSeq_score+1.5,
+                     Change=="Inc04"~RifflePoolSeq_score+2,
+                     Change=="Inc05"~RifflePoolSeq_score+2.5,
+                     
+                     T~NA_real_),
+    
+         TotalAbund_0_10 =
+           case_when(Indicator!="TotalAbund_0_10"~TotalAbund_0_10,
+                     Change=="Dec02"~TotalAbund_0_10-2,
+                     Change=="Dec01"~TotalAbund_0_10-1,
+                     Change=="Unchanged"~TotalAbund_0_10,
+                     Change=="Inc01"~TotalAbund_0_10+1,
+                     Change=="Inc02"~TotalAbund_0_10+2,
+                     T~NA_real_)
+  ) %>%
+  #Drop impossible values
+  filter(DifferencesInVegetation_score>=0, DifferencesInVegetation_score<=3,
+         SubstrateSorting_score>=0, SubstrateSorting_score<=3,
+         SedimentOnPlantsDebris_score>=0, SedimentOnPlantsDebris_score<=1.5,
+         UplandRooted_PA>=0, UplandRooted_PA<=1,
+         hydrophytes_2>=0, hydrophytes_2<=1,
+         TotalAbund_0_10>=0, TotalAbund_0_10<=2,
+         RifflePoolSeq_score>=0, RifflePoolSeq_score<=3
+  ) %>%
+  na.omit()
+
+
+gp_subset_crossed %>% filter(Change=="Inc06")
+
+gp_subset_crossed2 <- gp_subset_crossed %>%
+  bind_cols(
+    predict(RF_initial, newdata = gp_subset_crossed, type="prob") %>%
+      as_tibble() %>%
+      mutate( Class_predicted=case_when(E>=.5~"E",
+                                        I>=.5~"I",
+                                        P>=.5~"P",
+                                        P>E~"ALI",
+                                        E>P~"LTP",
+                                        P==E & I>P~"NMI", 
+                                        P==E & I<=P~"NMI",
+                                        T~"Other"))
+  ) %>%
+  mutate(SamePrediction=RF_Prediction_50==Class_predicted)
+
+
+sensitivity_plot <- gp_subset_crossed2 %>%
+  group_by(Indicator, Change) %>%
+  summarise(n_tests=length(SamePrediction),
+            n_unchanged=sum(SamePrediction)) %>%
+  ungroup() %>%
+  mutate(PctUnchanged=n_unchanged/n_tests,
+         ChangeDir = case_when(str_sub(Change,1,3)=="Dec"~"Decreased",
+                               str_sub(Change,1,3)=="Inc"~"Increased",
+                               str_sub(Change,1,3)=="Unc"~"Unchanged",
+                               T~"OTHER"),
+         VarGroup = case_when(Indicator %in% c("BankWidthMean")~"Continuous",
+                              Indicator %in% c("DifferencesInVegetation_score",
+                                               # "SedimentOnPlantsDebris_score",
+                                               "SubstrateSorting_score",
+                                               "RifflePoolSeq_score")~"Ord_0_3",
+                              Indicator %in% c("hydrophytes_2",
+                                               "UplandRooted_PA")~"PA",
+                              Indicator %in% c("TotalAbund_0_10",
+                                               "SedimentOnPlantsDebris_score",
+                                               "perennial_ISAsubregion_abundance_simp2_0_5_10_20")~"Ord_0_5",
+                              T~"OTHER")
+         ,
+         Increment = case_when(VarGroup =="Continuous" & ChangeDir=="Decreased"~ 1-((str_sub(Change, 5,5) %>% as.numeric())/10),
+                               VarGroup =="Continuous" & ChangeDir=="Unchanged"~ 1,
+                               VarGroup =="Continuous" & ChangeDir=="Increased" & str_sub(Change, 4,5)=="10"~2,
+                               VarGroup =="Continuous" & ChangeDir=="Increased"~ 1+((str_sub(Change, 5,5) %>% as.numeric())/10),
+                               VarGroup =="Ord_0_5" & ChangeDir=="Decreased"~ -(str_sub(Change, 5,5) %>% as.numeric()),
+                               VarGroup =="Ord_0_5" & ChangeDir=="Unchanged"~ 0,
+                               VarGroup =="Ord_0_5" & ChangeDir=="Increased"~ str_sub(Change, 5,5) %>% as.numeric(),
+                               
+                               VarGroup =="Ord_0_3" & ChangeDir=="Decreased"~ -(str_sub(Change, 5,5) %>% as.numeric())/2,
+                               VarGroup =="Ord_0_3" & ChangeDir=="Unchanged"~ 0,
+                               VarGroup =="Ord_0_3" & ChangeDir=="Increased"~ (str_sub(Change, 5,5) %>% as.numeric())/2,
+                               T~-99),
+         Increment_label=case_when(VarGroup=="Continuous"~paste0(Increment),
+                                   VarGroup %in% c("Ord_0_3","Ord_0_5") & ChangeDir=="Decreased"~paste0(Increment),
+                                   VarGroup %in% c("Ord_0_3","Ord_0_5") & ChangeDir=="Increased"~paste0("+", Increment),
+                                   VarGroup %in% c("Ord_0_3","Ord_0_5") & ChangeDir=="Unchanged"~"0",
+                                   T~"Other"),
+         Indicator_label = case_when(Indicator=="AlgalCover_LiveOrDead_NoUpstream"~"Algal cover",
+                                     Indicator=="BankWidthMean"~"Bank width",
+                                     Indicator=="SedimentOnPlantsDebris_score"~"Sediment On Plants Debris score",
+                                     Indicator=="UplandRooted_PA"~"UplandRooted_PA",
+                                     Indicator=="hydrophytes_2"~"hydrophytes_2",
+                                     Indicator=="TotalAbund_0_10"~"TotalAbund_0_10",
+                                     
+                                     Indicator=="SubstrateSorting_score"~"Substrate sorting score",
+                                     Indicator=="DifferencesInVegetation_score"~"Differences in vegetation",
+                                     Indicator=="RifflePoolSeq_score"~"Riffle/pool sequence",
+                                     Indicator=="Slope"~"Slope",
+                                     Indicator=="UplandRootedPlants_score"~"Upland rooted plants",
+                                     Indicator=="hydrophytes_present_0_1_2_3_4_5"~"Hydrophytes",
+                                     Indicator=="perennial_ISAsubregion_abundance_simp2_0_5_10_20"~"Perennial indicator taxa",
+                                     T~"OTHER"))
+
+sensitivity_plot$Increment_label<-factor(sensitivity_plot$Increment_label,
+                                                levels=c("0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8","0.9", 
+                                                         "1", 
+                                                         "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9", "2",
+                                                         "-5","-4","-3","-2","-1",
+                                                         "0",
+                                                         "+1","+2","+3","+4","+5"))
+
+sensitivity_plot_continuous<-ggplot(data=sensitivity_plot %>%
+                                         filter(VarGroup=="Continuous"), 
+                                    aes(x=Increment, y=PctUnchanged))+
+  geom_point(aes(color=PctUnchanged==1,
+                 size=n_tests))+
+  facet_wrap(~Indicator_label)+
+  scale_color_brewer(palette="Set1", name="Did any\nclassifications\nchange?", labels=c("Yes","No"))+
+  xlab("Change in indicator level (factor)") +
+  scale_size_continuous(name="# samples\nevaluated")+
+  scale_y_continuous(limits=c(0,1))+
+  # scale_x_discrete(labels=c("-5","-4","-3","-2","-1",
+  #                           "0",
+  #                           "+1","+2","+3","+4","+5"))+
+  ylab("% of samples with unchanged classifications")+
+  ggtitle("Continuous indicators")
+print(sensitivity_plot_continuous)
+ggsave(sensitivity_plot_continuous, 
+       filename=paste0(out_dir, "/sensitivity_plot_continuous.png"), 
+       height=6, width=8 )
+
+
+sensitivity_plot_ordinal<-ggplot(data=sensitivity_plot %>%
+                                      filter(VarGroup!="Continuous")%>%
+                                   filter(VarGroup!="PA")%>%
+                                   filter(VarGroup!="OTHER"),  
+                                 aes(x=Increment, y=PctUnchanged))+
+  geom_point(aes(color=PctUnchanged==1,
+                 size=n_tests))+
+  facet_wrap(~Indicator_label)+
+  scale_color_brewer(palette="Set1", name="Did any\nclassifications\nchange?", labels=c("Yes","No"))+
+  xlab("Change in indicator level (score/count)") +
+  scale_size_continuous(name="# samples\nevaluated")+
+  scale_y_continuous(limits=c(0,1))+
+  # scale_x_discrete(labels=c("-5","-4","-3","-2","-1",
+  #                           "0",
+  #                           "+1","+2","+3","+4","+5"))+
+  ylab("% of samples with unchanged classifications")+
+  ggtitle("Scored or count indicators")
+print(sensitivity_plot_ordinal)
+ggsave(sensitivity_plot_ordinal, 
+       filename=paste0(out_dir, "/sensitivity_plot_ordinal.png"), 
+       height=6, width=12 )
+
+
+
+################################################################################ 
 
 
 

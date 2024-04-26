@@ -9,7 +9,7 @@
 # - split into train/test
 # - EDA plots
 #
-# Note: last input dataset update from Rafi on 16 Nov 2023
+# Note: last input dataset update from Rafi on 25 Jan 2024
 ################################################################################
 library(rlang)
 library(tidyverse)
@@ -108,7 +108,8 @@ if (save_plots==TRUE){ggsave(plot_sites_crosswalk,
 # MAIN
 # 
 ################################################################################
-df_main <- read_csv("input/raw/df_main_20231116.csv") %>%
+df_main <- read_csv("input/raw/df_main_20240125.csv") %>%
+# df_main <- read_csv("input/raw/df_main_20231116.csv") %>%
   filter(SiteCode %in% (unique(df_crosswalk$SiteCode)))%>% 
   group_by(SiteCode, CollectionDate) %>% 
   slice_head(n=1) %>% #Temporary fix while dupes are resolved
@@ -674,7 +675,7 @@ world <- ne_countries(scale = "medium", returnclass = "sf")
 class(world)
 
 # subreg_shps <- read_sf(dsn = "input/raw/GreatPlainsRegions_V2")
-sub_shps <- read_sf(dsn = "input/raw/gp_subregions.geojson")
+sub_shps <- read_sf(dsn = "input/raw/gis/gp_subregions.geojson")
 
 gp_map <- ggplot(data =sub_shps, aes(fill=Zone))+
   geom_sf() +
@@ -1198,94 +1199,94 @@ if (save_plots==TRUE){ggsave(paste0(eda_dir, "/before_after_augment_reg.png"),
       dpi=300, height=4, width=12)}
 
 
-########################### EDA PLOTS OF ALL METRICS ###########################
-for (metric in setdiff(c(candidate_list), "Strata")) {
-  # metric <- "ChannelDimensions_score_NM"
-  print(metric)
-
-
-
-  #boxplot
-  metric_box <- ggplot(df_model, aes(x = Class,
-                       y = eval(parse(text = metric)), fill = Class)) +
-    geom_boxplot() +
-    # geom_jitter(position=position_jitter(0.2)) +
-    stat_summary(fun = "median", geom = "point", shape = 8,
-                 size = 3, color = "red") +
-    labs(#title = "SubstrateSorting_score",
-         #subtitle = "(0 = Not Present, 1.5 = Present)",
-          y="",
-          caption=paste0("(",CURRENT_REGION_DISPLAY,
-                        ")\n Number of Samples: ", dim(df_model)[1],
-                        "\n Number of Sites: ",
-                        length(unique(df_model$SiteCode))[1]))
-
-  # Histogram overlaid with kernel density curve
-  metric_hist <- df_model %>% ggplot(aes(x=eval(parse(text = metric)))) +
-    geom_histogram(aes(y=..density..),      #
-                   # binwidth=.5,
-                   # colour="black", fill="white"
-                   ) +
-    # geom_density(alpha=.2, fill="#FF6666")  +
-  labs(#title = paste(metric),
-         #subtitle = "(0 = Not Present, 1.5 = Present)",
-        x="value", y="",
-        caption=paste0("(",CURRENT_REGION_DISPLAY,
-                      ")\n Number of Samples: ", dim(df_model)[1],
-                      "\n Number of Sites: ",
-                      length(unique(df_model$SiteCode))[1]))
-
-  print(metric_box)
-  print(metric_hist)
-
-  temp <- df_model[,c(metric, "SiteCode")]
-  temp$fillcolor <- is.na(temp[, metric])
-
-  countMissing <- ggplot(temp, aes(x="", y=metric, fill=fillcolor)) +
-    geom_bar(stat="identity", width=1) +
-    coord_polar("y", start=0) +
-    labs(x="% Complete", y=metric,
-         caption=paste0("(",CURRENT_REGION_DISPLAY,
-                        ")\n Number of Samples: ", dim(temp)[1],
-                        "\n Number of Sites: ",
-                        length(unique(temp$SiteCode))[1]))+
-    scale_fill_manual(values=c("springgreen2","red"), name="Contains Missing")
-  countMissing
-
-  metric_box_region <- ggplot(df_model, aes(x = Region_detail,
-                                            y = eval(parse(text = metric)), fill = Region_detail)) +
-    geom_boxplot() +
-    # geom_violin() +
-    # geom_jitter(shape=16, position=position_jitter(0.01), size=1)+
-    # geom_jitter(position=position_jitter(0.2)) +
-    stat_summary(fun = "median", geom = "point", shape = 8,
-                 size = 3, color = "red") +
-    labs(#title = "SubstrateSorting_score",
-      #subtitle = "(0 = Not Present, 1.5 = Present)",
-      y="",
-      caption=paste0("(",CURRENT_REGION_DISPLAY,
-                     ")\n Number of Samples: ", dim(df_model)[1],
-                     "\n Number of Sites: ",
-                     length(unique(df_model$SiteCode))[1]))
-  metric_box_region
-
-
-
-
-
-  if (save_plots==TRUE){
-    ggsave(paste0(eda_dir, "/candidates/metric_", metric,".png"),
-                               # arrangeGrob(countMissing, metric_hist,
-                               #             metric_box, metric_box_region,
-                               #             nrow = 2,
-           arrangeGrob( metric_hist,
-                        arrangeGrob(metric_box, metric_box_region, ncol=2),
-                       nrow = 2,
-     
-           # top=paste0("\n\n\n---------------------------------------------------------------------------------------------------------\n\n",metric)
-           #                     ),
-           #                     dpi=300, height=9, width=9)}
-           top=metric ),
-           dpi=300, height=9, width=9)}
-}
+# ########################### EDA PLOTS OF ALL METRICS ###########################
+# for (metric in setdiff(c(candidate_list), "Strata")) {
+#   # metric <- "ChannelDimensions_score_NM"
+#   print(metric)
+# 
+# 
+# 
+#   #boxplot
+#   metric_box <- ggplot(df_model, aes(x = Class,
+#                        y = eval(parse(text = metric)), fill = Class)) +
+#     geom_boxplot() +
+#     # geom_jitter(position=position_jitter(0.2)) +
+#     stat_summary(fun = "median", geom = "point", shape = 8,
+#                  size = 3, color = "red") +
+#     labs(#title = "SubstrateSorting_score",
+#          #subtitle = "(0 = Not Present, 1.5 = Present)",
+#           y="",
+#           caption=paste0("(",CURRENT_REGION_DISPLAY,
+#                         ")\n Number of Samples: ", dim(df_model)[1],
+#                         "\n Number of Sites: ",
+#                         length(unique(df_model$SiteCode))[1]))
+# 
+#   # Histogram overlaid with kernel density curve
+#   metric_hist <- df_model %>% ggplot(aes(x=eval(parse(text = metric)))) +
+#     geom_histogram(aes(y=..density..),      #
+#                    # binwidth=.5,
+#                    # colour="black", fill="white"
+#                    ) +
+#     # geom_density(alpha=.2, fill="#FF6666")  +
+#   labs(#title = paste(metric),
+#          #subtitle = "(0 = Not Present, 1.5 = Present)",
+#         x="value", y="",
+#         caption=paste0("(",CURRENT_REGION_DISPLAY,
+#                       ")\n Number of Samples: ", dim(df_model)[1],
+#                       "\n Number of Sites: ",
+#                       length(unique(df_model$SiteCode))[1]))
+# 
+#   print(metric_box)
+#   print(metric_hist)
+# 
+#   temp <- df_model[,c(metric, "SiteCode")]
+#   temp$fillcolor <- is.na(temp[, metric])
+# 
+#   countMissing <- ggplot(temp, aes(x="", y=metric, fill=fillcolor)) +
+#     geom_bar(stat="identity", width=1) +
+#     coord_polar("y", start=0) +
+#     labs(x="% Complete", y=metric,
+#          caption=paste0("(",CURRENT_REGION_DISPLAY,
+#                         ")\n Number of Samples: ", dim(temp)[1],
+#                         "\n Number of Sites: ",
+#                         length(unique(temp$SiteCode))[1]))+
+#     scale_fill_manual(values=c("springgreen2","red"), name="Contains Missing")
+#   countMissing
+# 
+#   metric_box_region <- ggplot(df_model, aes(x = Region_detail,
+#                                             y = eval(parse(text = metric)), fill = Region_detail)) +
+#     geom_boxplot() +
+#     # geom_violin() +
+#     # geom_jitter(shape=16, position=position_jitter(0.01), size=1)+
+#     # geom_jitter(position=position_jitter(0.2)) +
+#     stat_summary(fun = "median", geom = "point", shape = 8,
+#                  size = 3, color = "red") +
+#     labs(#title = "SubstrateSorting_score",
+#       #subtitle = "(0 = Not Present, 1.5 = Present)",
+#       y="",
+#       caption=paste0("(",CURRENT_REGION_DISPLAY,
+#                      ")\n Number of Samples: ", dim(df_model)[1],
+#                      "\n Number of Sites: ",
+#                      length(unique(df_model$SiteCode))[1]))
+#   metric_box_region
+# 
+# 
+# 
+# 
+# 
+#   if (save_plots==TRUE){
+#     ggsave(paste0(eda_dir, "/candidates/metric_", metric,".png"),
+#                                # arrangeGrob(countMissing, metric_hist,
+#                                #             metric_box, metric_box_region,
+#                                #             nrow = 2,
+#            arrangeGrob( metric_hist,
+#                         arrangeGrob(metric_box, metric_box_region, ncol=2),
+#                        nrow = 2,
+#      
+#            # top=paste0("\n\n\n---------------------------------------------------------------------------------------------------------\n\n",metric)
+#            #                     ),
+#            #                     dpi=300, height=9, width=9)}
+#            top=metric ),
+#            dpi=300, height=9, width=9)}
+# }
 ################################################################################
