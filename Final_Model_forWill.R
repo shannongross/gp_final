@@ -20,12 +20,8 @@ print(paste("Your working dir has been set to:", HOME_DIR))
 # Get input dataset (contains augmented training, testing data)
 df_input <- read_csv(paste0(HOME_DIR,"/input/processed/df_model_aug.csv"))
 
-# Explicitly set datatypes
+# Explicitly set data type of prediction variable
 df_input$Class <- as.factor(df_input$Class)
-df_input$Region_detail <- as.factor(df_input$Region_detail)
-
-# Create Strata column
-df_input <- df_input %>% mutate( Strata = Region_detail)
 
 ############################## CREATE NEW METRICS ##############################
 df_input <- df_input %>% mutate(
@@ -33,10 +29,8 @@ df_input <- df_input %>% mutate(
                               ((TotalAbundance>0) & (TotalAbundance<10)~1),
                               TotalAbundance>=10~2),
   UplandRooted_PA = case_when(UplandRootedPlants_score<3~0, T~1),
-  ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),
   hydrophytes_2 = case_when(hydrophytes_present<2~0, T~1)
 ) 
-
 
 # Separate datasets
 df_MODEL <- df_input %>% filter(Dataset=="Training")
@@ -47,15 +41,14 @@ df_TEST <- df_input %>% filter(Dataset=="Testing")
 #originally created in order to replicate the results exactly. Otherwise you may
 #receive slightly different results (similar to a different random seed)
 
-current_metrics <- c( "BankWidthMean",
-                      "SubstrateSorting_score",
-                      "DifferencesInVegetation_score",
-                      "RifflePoolSeq_score",
-                      "SedimentOnPlantsDebris_score", 
-                      # "ephISAabund_PA", ##REMOVE
-                      "UplandRooted_PA",
-                      "hydrophytes_2",
-                      "TotalAbund_0_10" )
+list_of_predictors <- c( "BankWidthMean",
+                        "SubstrateSorting_score",
+                        "DifferencesInVegetation_score",
+                        "RifflePoolSeq_score",
+                        "SedimentOnPlantsDebris_score", 
+                        "UplandRooted_PA",
+                        "hydrophytes_2",
+                        "TotalAbund_0_10" )
 
 # Additional context on these metrics for Will below...
 #
@@ -136,7 +129,7 @@ current_metrics <- c( "BankWidthMean",
 
 set.seed(1111)
 
-training_data <- df_MODEL[, c("Class", current_metrics)]
+training_data <- df_MODEL[, c("Class", list_of_predictors)]
 
 # Regenerate the model OR...
 RF <- randomForest(Class~.,
@@ -144,62 +137,50 @@ RF <- randomForest(Class~.,
                    ntree=1500,
                    importance=T,
                    proximity=T)
+
 # ...Restore the object
 RF <- readRDS("RF_NoGIS_Unstrat_5.rds")
 
 
 set.seed(1111)
-train_results <- tibble(df_MODEL) %>%
-  add_column( RF_Prediction_Majority = RF$predicted) %>%
-  bind_cols(
-    predict(RF, type="prob") %>% 
-      as_tibble() 
-  )
-
-#Reclassify training data with 50% minimum probability
-train_results <- train_results %>% mutate(
-  RF_Prediction_50=case_when(
-    E>=.5~"E",
-    I>=.5~"I",
-    P>=.5~"P",
-    P>E~"ALI",
-    E>P~"LTP",
-    P==E & I>P~"NMI", 
-    P==E & I<=P~"NMI",
-    T~"Other"),
-  #Identify correct classifications
-  EvALI_correct = case_when(
-    Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
-    Class %in% c("I","P") & RF_Prediction_50 %in% c("I","P","ALI")~T,
-    T~F),
-  PvIvE_correct = case_when(
-    Class %in% c("E") & RF_Prediction_50 %in% c("E")~T,
-    Class %in% c("I") & RF_Prediction_50 %in% c("I")~T,
-    Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
-    T~F)
-)
+train_results <- df_MODEL %>% 
+  ### GET OOB PREDICTIONS
+  # Append the predictions (using majority voting) to the training df
+  # add_column(RF_Prediction_Majority = RF$predicted) %>% #OOB
+  # # Append the associated OOB prediction probabilities to the training df
+  # bind_cols(predict(RF, type="prob") %>%
+  #             as_tibble() ) %>%
+  
+  ### GET In-Bag PREDICTIONS (by using 'newdata' argument)
+  add_column(RF_Prediction_Majority = 
+               predict(RF, 
+                       newdata = training_data) #In-Bag prediction
+  ) %>%
+  bind_cols(predict(RF, 
+                    newdata = training_data, #In-Bag probabilities
+                    type="prob") %>%  
+              as_tibble() ) %>%
+  filter(Notes!="Augmented")
 
 
-####### New data
-#define new data frame
-new_data <- df_TEST[, c("Class", current_metrics)]
+### TEST DATA
+new_data <- df_TEST[, c("Class", list_of_predictors)]
 
-# Make predictions
-pred <- predict(RF, newdata = new_data)
-
+set.seed(1111)
 # Test results
-test_results <- tibble(df_TEST) %>%
-  add_column(pred) %>%
-  rename(RF_Prediction_Majority="pred") %>%
-  bind_cols(
-    predict(RF, 
-            newdata=new_data, #Generate predictions
-            type="prob") %>%
-      as_tibble() 
-  ) 
+test_results <- df_TEST %>%
+  add_column(RF_Prediction_Majority = 
+               predict(RF, 
+                       newdata = new_data) #prediction
+  ) %>%
+  bind_cols(predict(RF, 
+                    newdata = new_data, #probabilities
+                    type="prob") %>%  
+              as_tibble() )
 
-#Reclassify testing data with 50% minimum probability
-test_results <- test_results %>% mutate(
+# Reclassify testing data with 50% minimum probability
+full_results <- rbind(train_results, test_results)
+full_results <- full_results %>% mutate(
   RF_Prediction_50=case_when(
     E>=.5~"E",
     I>=.5~"I",
@@ -220,25 +201,99 @@ test_results <- test_results %>% mutate(
     Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
     T~F)
 )
+# write_csv(full_results, file="full_results.csv")
+write_csv(full_results %>%select("ParentGlobalID", 
+                                 "SiteCode",
+                                 "CollectionDate",
+                                 "Dataset",
+                                 "Notes",
+                                 "Class",
+                                 "TotalAbundance",
+                                 "UplandRootedPlants_score",
+                                 "hydrophytes_present",
+                                 list_of_predictors,
+                                 "E","I","P",
+                                 "RF_Prediction_50"
+                                 ), 
+          file="GreatPlainsFinalResults.csv")
 
-#################### Extra, create a confusion matrix ######################
-combined_results <- rbind(train_results, test_results)
-## FINAL CONFUSION MATRIX
-results_conf_mat <- combined_results %>% group_by(Class, Dataset)
-results_conf_mat$Class <- as.factor(results_conf_mat$Class)
-results_conf_mat$Dataset <- as.factor(results_conf_mat$Dataset)
-results_conf_mat$RF_Prediction_50 <- as.factor(results_conf_mat$RF_Prediction_50)
-results_conf_mat2 <- results_conf_mat %>%
-  group_by( Class, Dataset, RF_Prediction_50)%>%
-  summarise(n=length(SiteCode)) %>%
-  rename(ActualClass="Class")
-results_conf_mat3 <- spread(results_conf_mat2, key = RF_Prediction_50, value = n)
-results_conf_mat3 <- results_conf_mat3 %>% arrange(Dataset)
-melted <- melt(results_conf_mat3)
-cm_pivot_table <- melted %>%
-  pivot_wider(
-    names_from = c(ActualClass, Dataset),
-    values_from = value
-  ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI', 'P', 'LTP', 'NMI')))
+################################## QC RESULTS ################################## 
+# Make sure results are reproducable by taking a random subset of data
+# and check that the predictions are the same as they were originally
+################################################################################
 
-cm_pivot_table
+df_random_sample <- sample_n(df_input, 100)
+
+# Create new predictions using the 'df_newsubset'
+set.seed(1111)
+
+originalpred <- full_results %>% 
+    filter(ParentGlobalID%in%unique(df_random_sample$ParentGlobalID)) %>%
+    select(ParentGlobalID, RF_Prediction_50)
+
+# Create dataframe to store testing results (ie 'newpredictions')
+random_results <- df_random_sample %>%
+  # Append the predictions (using majority voting) to the testing df
+  add_column(RF_Prediction_Majority= predict(RF, 
+          newdata=df_random_sample[, c("Class", list_of_predictors)])
+  ) %>%
+  # Also append the associated probabilities
+  bind_cols(
+    predict(RF,
+            newdata=df_random_sample[, c(list_of_predictors)], 
+            type="prob") %>%
+      as_tibble()
+  ) %>% 
+  mutate(
+    #Reclassify with 50% minimum probability
+    QC_RF_Prediction=case_when(
+      E>=.5~"E",
+      I>=.5~"I",
+      P>=.5~"P",
+      P>E~"ALI",
+      E>P~"LTP",
+      P==E & I>P~"NMI", 
+      P==E & I<=P~"NMI",
+      T~"Other")
+  ) %>% select("ParentGlobalID",
+               "SiteCode",
+               "CollectionDate",
+               "Class",
+               "Dataset",
+               "QC_RF_Prediction")
+
+random_results2 <- merge(x = random_results, 
+                         y = originalpred, 
+                         by = "ParentGlobalID", 
+                         all.x = TRUE)
+
+# True/False, does the prediction match the original prediction?
+random_results2$Check <- random_results2$QC_RF_Prediction ==
+    random_results2$QC_RF_Prediction
+
+# write_csv(random_results2, file="QC_predictions.csv")
+
+
+
+# #################### Extra, create a confusion matrix ######################
+# library(reshape2)
+# 
+# ## FINAL CONFUSION MATRIX
+# results_conf_mat <- full_results %>% group_by(Class, Dataset)
+# results_conf_mat$Class <- as.factor(results_conf_mat$Class)
+# results_conf_mat$Dataset <- as.factor(results_conf_mat$Dataset)
+# results_conf_mat$RF_Prediction_50 <- as.factor(results_conf_mat$RF_Prediction_50)
+# results_conf_mat2 <- results_conf_mat %>%
+#   group_by( Class, Dataset, RF_Prediction_50)%>%
+#   summarise(n=length(SiteCode)) %>%
+#   rename(ActualClass="Class")
+# results_conf_mat3 <- spread(results_conf_mat2, key = RF_Prediction_50, value = n)
+# results_conf_mat3 <- results_conf_mat3 %>% arrange(Dataset)
+# melted <- melt(results_conf_mat3)
+# cm_pivot_table <- melted %>%
+#   pivot_wider(
+#     names_from = c(ActualClass, Dataset),
+#     values_from = value
+#   ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI', 'P', 'LTP', 'NMI')))
+# 
+# cm_pivot_table
