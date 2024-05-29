@@ -44,7 +44,6 @@ df_input$Region_detail <- as.factor(df_input$Region_detail)
 df_input <- df_input %>% mutate( Strata = Region_detail)
 
 
-
 ################################## ADDITIONAL COLUMNS ##########################
 # CREATE BINS/MODIFY EXISTING
 ################################################################################
@@ -145,8 +144,7 @@ ggsummaryPlot <- function(df){
 #######################################################################
 # Stepwise refinement of GP model
 #######################################################################
-# model_version <- "DraftFinalModelsQC" 
-model_version <- "FinalModelQC_Apr2024"
+model_version <- "Final_GP_Model"
 chosen_model <- "NoGIS_Unstrat"
 plotwidth <- 10.5
 numTrees <- 1500
@@ -595,6 +593,19 @@ make_refinements <- function (thisstep, chosen_model, descript, field_model_vars
      )
      write_csv(refined_results_full, file=paste0(debug_dir,"/full_results.csv"))
      #################################
+     ## Plot importance of chosen variables
+     # varimp <- varImpPlot(thismod, 
+     #                      main="RandomForest: Variables in Order of Importance")
+     # varimp <- as.data.frame(varimp)
+     # varimp$SelPred <- rownames(varimp) # row names to column
+     # rownames(varimp) <- NULL
+     # varimp$ModName <- case
+     # # write_csv(varimp, file=paste0(debug_dir, "/varImp.csv"))
+     
+     ## Plot importance of chosen variables
+     png(file=paste0(debug_dir, "/", thisstep, "_varImp.png"), width=800, height=450)
+     varImpPlot(thismod, main="RandomForest: Variables in Order of Importance")
+     dev.off()
      
      
      

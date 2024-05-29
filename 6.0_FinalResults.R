@@ -19,7 +19,7 @@ print(paste("Your working dir has been set to:", HOME_DIR))
 df_input <- read_csv(paste0(HOME_DIR,"/input/processed/df_model_aug.csv"))
 
 ####DROP AUGMENTED
-df_input <- df_input %>% filter(Notes !="Augmented")
+#df_input <- df_input %>% filter(Notes !="Augmented")
 
 # Explicitly set data type of prediction variable
 df_input$Class <- as.factor(df_input$Class)
@@ -38,7 +38,7 @@ df_TRAIN <- df_input %>% filter(Dataset=="Training")
 df_TEST <- df_input %>% filter(Dataset=="Testing")
 
 
-model_version <- "FinalModelQC_Apr2024"
+model_version <- "Final_GP_Model"
 chosen_model <- "NoGIS_Unstrat"
 chosen_version <- "V5"
 parent_path <- paste0(HOME_DIR, "/output/models/", model_version,
@@ -94,11 +94,9 @@ train_results <- df_TRAIN %>%
 
 
 # Saving on object in RData format
-rdata_name <- paste0(output_path, "/RF_", chosen_model,
-                     "_", chosen_version, "fin.rds")
+rdata_name <- paste0(output_path, "/GreatPlainsFinal.rds")
 print(paste("Saving:", rdata_name))
 saveRDS(RF, file=rdata_name)
-
 
 
 # Create new predictions using the 'newdata'
@@ -144,9 +142,10 @@ full_results <- full_results %>% mutate(
     T~F)
   )
 
-write_csv(full_results, file=paste0(output_path, "full_results.csv"))
+write_csv(full_results, file=paste0(output_path, "/GreatPlainsFinalResults.csv"))
 
 
+############################## Great Plains Results ############################ 
 full_results_GPfinal <- full_results  %>%
   add_column( model="GP final")
 full_results_GPfinal$PredClass <- full_results_GPfinal$RF_Prediction_50
@@ -164,9 +163,29 @@ subset_cols <- c("ParentGlobalID",
 df_GPfinal_subset  <- full_results_GPfinal[, subset_cols]
 
 
+# FINAL GREAT PLAINS CONFUSION MATRIX
+results_conf_mat <- full_results_GPfinal %>% group_by(Class, Dataset)
+results_conf_mat$Class <- as.factor(results_conf_mat$Class)
+results_conf_mat$Dataset <- as.factor(results_conf_mat$Dataset)
+results_conf_mat$PredClass <- as.factor(results_conf_mat$PredClass)
+results_conf_mat2 <- results_conf_mat %>%
+  group_by( Class, Dataset, PredClass)%>%
+  summarise(n=length(SiteCode)) %>%
+  rename(ActualClass="Class")
+results_conf_mat3 <- spread(results_conf_mat2, 
+                            key = PredClass, value = n)
+results_conf_mat3 <- results_conf_mat3 %>% arrange(Dataset)
+melted <- melt(results_conf_mat3)
+cm_pivot_table <- melted %>%
+  pivot_wider(
+    names_from = c(ActualClass, Dataset),
+    values_from = value
+  ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI', 'P', 'LTP', 'NMI')))
+
+write_csv(cm_pivot_table, file=paste0(output_path, "/ConfusionMatrix.csv"))
+cm_pivot_table
 
 ########################### OTHER MODEL PERFORMANCE ############################ 
-
 #Need additional columns
 df_main0 <- read_csv("input/raw/df_main_20240125.csv")
 df_main <- df_main0 %>% select(c("ParentGlobalID",
@@ -184,6 +203,7 @@ full_results_addl <- merge(x = full_results,
                            y = df_main, 
                            by = "ParentGlobalID", 
                            all.x = TRUE)
+
 ################################################################################
 #  GP Beta Method
 ################################################################################
@@ -212,37 +232,12 @@ full_results_GPbeta0 <- full_results_addl %>%
 set.seed(555)
 new_data_gp <- full_results_GPbeta0[, c("Class", GP_beta_predictors)]
 
-# MAKE PREDICTION USING TEST SET
-new_data_gp_pred <- predict(GP_beta, newdata = new_data_gp)
-
-# full results
+# MAKE PREDICTION
 df_GPbeta <- full_results_GPbeta0 %>%
-  # # select(c("ParentGlobalID","Class",GP_beta_predictors))%>%
-  add_column(new_data_gp_pred) %>%
-  rename(PredClass="new_data_gp_pred") %>%
-  # rename(PredClass="new_data_gp_pred") %>%
+  add_column(PredClass=predict(GP_beta, 
+                               newdata = new_data_gp)) %>%
   add_column(model="GP beta")
 
-# df_GPbeta$PredClass <- df_GPbeta$new_data_gp_pred
-
-
-# df_GPbeta$model <- df_GPbeta$"GPbeta"
-  #bind_cols(
-    #predict(GP_beta,
-           # newdata=new_data_gp,  #Generate predictions on new data
-           # type="prob") %>%
-     # as_tibble()
- # ) 
-
-# full_results_GPbeta_subset <- full_results_GPbeta %>%
-#   select(c("ParentGlobalID","GPbeta_Prediction"))
-# # Merge GPbeta results with full df
-# full_results <- merge(x = full_results, 
-#                       y = full_results_GPbeta_subset, 
-#                       by = "ParentGlobalID", 
-#                       all.x = TRUE)
-# full_results_preds <- full_results_GPbeta %>%
-#   select(c("ParentGlobalID","GPbeta_Prediction"))
 df_GPbeta_subset  <- df_GPbeta[, subset_cols]
 
 
@@ -268,7 +263,6 @@ nm_vars <- c(
 )
 
 
-
 df_NM <- full_results_addl %>% 
   mutate(nm_score_final = full_results_addl %>%
            select(all_of(nm_vars)) %>% rowSums(),
@@ -287,17 +281,7 @@ df_NM <- full_results_addl %>%
       rename(PredClass="NM_Prediction") %>%
       add_column(model="NM")
 
-
-
 df_NM_subset  <- df_NM[, subset_cols]
-# full_resultsNM_subset <- full_resultsNM %>%
-#   select(c("ParentGlobalID","NM_Prediction"))
-# 
-# # Merge NM results with full df
-# full_results <- merge(x = full_results, 
-#                       y = full_resultsNM_subset, 
-#                       by = "ParentGlobalID", 
-#                       all.x = TRUE)
 
 
 ################################################################################
@@ -337,13 +321,8 @@ set.seed(444)
 new_data_aw <- full_results_aw0[, c("Class", aw_vars)]
 
 # MAKE PREDICTION 
-new_data_aw_pred <- predict(aw_model, newdata = new_data_aw)
-
-# full results
 df_AW <- full_results_aw0 %>%
-  # select(c("ParentGlobalID","Class", aw_vars))%>%
-  add_column(new_data_aw_pred) %>%
-  rename(AW_Prediction="new_data_aw_pred") %>%
+  add_column(AW_Prediction=predict(aw_model, newdata = new_data_aw)) %>%
     bind_cols(
       predict(aw_model,
         newdata=new_data_aw, #Generate predictions on new data
@@ -364,14 +343,7 @@ df_AW <- full_results_aw0 %>%
     add_column(model="AW")
 
 df_AW_subset <- df_AW[, subset_cols]
-# full_results_AW_subset <- full_results_AW %>%
-#   select(c("ParentGlobalID","AW_Prediction"))
-# 
-# # Merge AW results with full df
-# full_results <- merge(x = full_results, 
-#                       y = full_results_AW_subset, 
-#                       by = "ParentGlobalID", 
-#                       all.x = TRUE)
+
 
 ################################################################################
 #  Western Mountains Method (Rafi sent 5/6/2024)
@@ -418,13 +390,8 @@ set.seed(333)
 new_data_wm <- full_results_wm0[, c("Class", wm_vars)]
 
 # MAKE PREDICTION 
-new_data_wm_pred <- predict(wm_model, newdata = new_data_wm)
-
-# full results
 df_WM <- full_results_wm0 %>%
-  # select(c("ParentGlobalID","Class", wm_vars))%>%
-  add_column(new_data_wm_pred) %>%
-  rename(WM_Prediction="new_data_wm_pred") %>%
+  add_column(WM_Prediction=predict(wm_model, newdata = new_data_wm)) %>%
   bind_cols(
     predict(wm_model,
             newdata=new_data_wm, #Generate predictions on new data
@@ -445,14 +412,6 @@ df_WM <- full_results_wm0 %>%
   add_column(model="WM")
 
 df_WM_subset <- df_WM[, subset_cols]
-# df_WM <- full_results_WM %>%
-#   select(c("ParentGlobalID","WM_Prediction"))
-# 
-# # Merge AW results with full df
-# full_results <- merge(x = full_results, 
-#                       y = df_WM, 
-#                       by = "ParentGlobalID", 
-#                       all.x = TRUE)
 
 
 # ################################################################################
@@ -537,7 +496,7 @@ full_results_combined <- full_results_combined %>% mutate(
   )
 
 write_csv(full_results_combined, 
-          file=paste0(output_path, "full_results_withOther.csv"))
+          file=paste0(output_path, "/GreatPlainsFinalResults_withOther.csv"))
 
 
 ################################################################################

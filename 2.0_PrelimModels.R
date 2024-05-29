@@ -32,24 +32,24 @@ if (!dir.exists(models_dir)){dir.create(models_dir)}
 # case_list: which models to run. Uncomment ones you want to run.
 ################################################################################
 # name of directory to store these results
-model_version <- "FinalModelQC_Apr2024"
+model_version <- "Final_GP_Model"
 
 # how many trees
 numOfTrees <- 1500 
 
 # models to run
 case_list <- c(
-  # "BaseModel_Unstrat", #for reference only
-  # "BaseModel_S",       #for reference only
-  # "BaseModel_UNC",      #for reference only
+  "BaseModel_Unstrat", #for reference only
+  "BaseModel_S",       #for reference only
+  "BaseModel_UNC",      #for reference only
 
-  "NoGIS_Unstrat"#,   #also, 2BMI limit? #more of a reference
-  # "NoGIS_S",         #also, 2BMI limit?
-  # "NoGIS_UNC",       #also, 2BMI limit?
-  # 
-  # "2GIS_Unstrat",    #also, 2BMI limit
-  # "2GIS_UNC",        #also, 2BMI limit
-  # "2GIS_S"           #also, 2BMI limit
+  "NoGIS_Unstrat",   #also, 2BMI limit? #more of a reference
+  "NoGIS_S",         #also, 2BMI limit?
+  "NoGIS_UNC",       #also, 2BMI limit?
+
+  "2GIS_Unstrat",    #also, 2BMI limit
+  "2GIS_UNC",        #also, 2BMI limit
+  "2GIS_S"           #also, 2BMI limit
 )
 
   

@@ -139,7 +139,7 @@ RF <- randomForest(Class~.,
                    proximity=T)
 
 # ...Restore the object
-RF <- readRDS("RF_NoGIS_Unstrat_5.rds")
+# RF <- readRDS("RF_NoGIS_Unstrat_5.rds")
 
 
 set.seed(1111)
@@ -201,45 +201,96 @@ full_results <- full_results %>% mutate(
     Class %in% c("P") & RF_Prediction_50 %in% c("P")~T,
     T~F)
 )
-# write_csv(full_results, file="full_results.csv")
-write_csv(full_results %>%select("ParentGlobalID", 
-                                 "SiteCode",
-                                 "CollectionDate",
-                                 "Dataset",
-                                 "Notes",
-                                 "Class",
-                                 "TotalAbundance",
-                                 "UplandRootedPlants_score",
-                                 "hydrophytes_present",
-                                 list_of_predictors,
-                                 "E","I","P",
-                                 "RF_Prediction_50"
-                                 ), 
-          file="GreatPlainsFinalResults.csv")
+# # write_csv(full_results, file="full_results.csv")
+# write_csv(full_results %>%select("ParentGlobalID", 
+#                                  "SiteCode",
+#                                  "CollectionDate",
+#                                  "Dataset",
+#                                  "Notes",
+#                                  "Class",
+#                                  "TotalAbundance",
+#                                  "UplandRootedPlants_score",
+#                                  "hydrophytes_present",
+#                                  list_of_predictors,
+#                                  "E","I","P",
+#                                  "RF_Prediction_50"
+#                                  ), 
+#           file="GreatPlainsFinalResults.csv")
+
+
+
+# write_csv(random_results2, file="QC_predictions.csv")
+
+
+
+
+
 
 ################################## QC RESULTS ################################## 
 # Make sure results are reproducable by taking a random subset of data
 # and check that the predictions are the same as they were originally
 ################################################################################
 
-df_random_sample <- sample_n(df_input, 100)
+df_input_copy <- df_input
+# lapply(df_input_copy[,list_of_predictors], class)
+df_input_copy$BankWidthMean <- as.numeric(df_input_copy$BankWidthMean)
+# df_input_copy$SubstrateSorting_score <- as.factor(
+#     df_input_copy$SubstrateSorting_score) #7
+# df_input_copy$DifferencesInVegetation_score <- as.factor(
+#     df_input_copy$DifferencesInVegetation_score) #14
+# df_input_copy$RifflePoolSeq_score <- as.factor(
+#     df_input_copy$RifflePoolSeq_score) #11
+# df_input_copy$SedimentOnPlantsDebris_score <- as.factor(
+#     df_input_copy$SedimentOnPlantsDebris_score) #17
+df_input_copy$TotalAbundance <- as.integer(
+    df_input_copy$TotalAbundance) #0
+df_input_copy$hydrophytes_present <- as.integer(
+    df_input_copy$hydrophytes_present) #0
+# df_input_copy$TotalAbund_0_10 <- as.factor(
+#     df_input_copy$TotalAbund_0_10) #12
+df_input_copy$hydrophytes_2 <- as.logical(
+    df_input_copy$hydrophytes_2) #0
+# lapply(df_input_copy[,list_of_predictors], class)
+# 
+# df_input_copy <- df_input_copy %>% mutate(
+#   UplandRooted_PA = case_when(UplandRootedPlants_score<3~1, T~0) #10
+# )
+df_input_copy <- df_input_copy %>% mutate(
+  UplandRooted_PA = case_when(UplandRootedPlants_score<3~T, T~F) #10
+)
+# df_input_copy$UplandRootedPlants_score <- as.numeric(df_input_copy$UplandRootedPlants_score)
+df_input_copy$UplandRooted_PA <- as.logical(df_input_copy$UplandRooted_PA)
 
+set.seed(1111)
+training_data_copy <- df_input_copy %>% 
+  filter(Dataset=="Training") %>%
+  select(c("Class", list_of_predictors)) 
+
+RF_copy <- randomForest(Class~.,
+                   data=training_data_copy,
+                   ntree=1500,
+                   importance=T,
+                   proximity=T)
+
+
+# df_random_sample <- sample_n(df_input_copy, 100)
+df_random_sample <- df_input_copy#[1:125,]
 # Create new predictions using the 'df_newsubset'
 set.seed(1111)
 
 originalpred <- full_results %>% 
-    filter(ParentGlobalID%in%unique(df_random_sample$ParentGlobalID)) %>%
+    filter(ParentGlobalID %in% unique(df_random_sample$ParentGlobalID)) %>%
     select(ParentGlobalID, RF_Prediction_50)
 
 # Create dataframe to store testing results (ie 'newpredictions')
 random_results <- df_random_sample %>%
   # Append the predictions (using majority voting) to the testing df
-  add_column(RF_Prediction_Majority= predict(RF, 
+  add_column(RF_Prediction_Majority= predict(RF_copy, 
           newdata=df_random_sample[, c("Class", list_of_predictors)])
   ) %>%
   # Also append the associated probabilities
   bind_cols(
-    predict(RF,
+    predict(RF_copy,
             newdata=df_random_sample[, c(list_of_predictors)], 
             type="prob") %>%
       as_tibble()
@@ -247,9 +298,9 @@ random_results <- df_random_sample %>%
   mutate(
     #Reclassify with 50% minimum probability
     QC_RF_Prediction=case_when(
-      E>=.5~"E",
-      I>=.5~"I",
       P>=.5~"P",
+      I>=.5~"I",
+      E>=.5~"E",
       P>E~"ALI",
       E>P~"LTP",
       P==E & I>P~"NMI", 
@@ -269,31 +320,54 @@ random_results2 <- merge(x = random_results,
 
 # True/False, does the prediction match the original prediction?
 random_results2$Check <- random_results2$QC_RF_Prediction ==
-    random_results2$QC_RF_Prediction
+    random_results2$RF_Prediction_50 
+# random_results2
 
-# write_csv(random_results2, file="QC_predictions.csv")
+sum(random_results2$Check=="FALSE")
 
 
 
-# #################### Extra, create a confusion matrix ######################
-# library(reshape2)
-# 
-# ## FINAL CONFUSION MATRIX
-# results_conf_mat <- full_results %>% group_by(Class, Dataset)
-# results_conf_mat$Class <- as.factor(results_conf_mat$Class)
-# results_conf_mat$Dataset <- as.factor(results_conf_mat$Dataset)
-# results_conf_mat$RF_Prediction_50 <- as.factor(results_conf_mat$RF_Prediction_50)
-# results_conf_mat2 <- results_conf_mat %>%
-#   group_by( Class, Dataset, RF_Prediction_50)%>%
-#   summarise(n=length(SiteCode)) %>%
-#   rename(ActualClass="Class")
-# results_conf_mat3 <- spread(results_conf_mat2, key = RF_Prediction_50, value = n)
-# results_conf_mat3 <- results_conf_mat3 %>% arrange(Dataset)
-# melted <- melt(results_conf_mat3)
-# cm_pivot_table <- melted %>%
-#   pivot_wider(
-#     names_from = c(ActualClass, Dataset),
-#     values_from = value
-#   ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI', 'P', 'LTP', 'NMI')))
-# 
-# cm_pivot_table
+#################### Extra, create a confusion matrix ######################
+library(reshape2)
+
+## FINAL CONFUSION MATRIX
+results_conf_mat0 <- full_results %>% group_by(Class, Dataset)
+results_conf_mat0$Class <- as.factor(results_conf_mat0$Class)
+results_conf_mat0$Dataset <- as.factor(results_conf_mat0$Dataset)
+results_conf_mat0$RF_Prediction_50 <- as.factor(results_conf_mat0$RF_Prediction_50)
+results_conf_mat02 <- results_conf_mat0 %>%
+  group_by( Class, Dataset, RF_Prediction_50)%>%
+  summarise(n=length(SiteCode)) %>%
+  rename(ActualClass="Class")
+results_conf_mat03 <- spread(results_conf_mat02, key = RF_Prediction_50, value = n)
+results_conf_mat03 <- results_conf_mat03 %>% arrange(Dataset)
+melted0 <- melt(results_conf_mat03)
+cm_pivot_table0 <- melted0 %>%
+  pivot_wider(
+    names_from = c(ActualClass, Dataset),
+    values_from = value
+  ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI', 'P', 'LTP', 'NMI')))
+
+
+## FINAL CONFUSION MATRIX
+results_conf_mat <- random_results %>% group_by(Class, Dataset)
+results_conf_mat$Class <- as.factor(results_conf_mat$Class)
+results_conf_mat$Dataset <- as.factor(results_conf_mat$Dataset)
+results_conf_mat$QC_RF_Prediction <- as.factor(results_conf_mat$QC_RF_Prediction)
+results_conf_mat2 <- results_conf_mat %>%
+  group_by( Class, Dataset, QC_RF_Prediction)%>%
+  summarise(n=length(SiteCode)) %>%
+  rename(ActualClass="Class")
+results_conf_mat3 <- spread(results_conf_mat2, key = QC_RF_Prediction, value = n)
+results_conf_mat3 <- results_conf_mat3 %>% arrange(Dataset)
+melted <- melt(results_conf_mat3)
+cm_pivot_table <- melted %>%
+  pivot_wider(
+    names_from = c(ActualClass, Dataset),
+    values_from = value
+  ) %>% arrange(factor(variable, levels = c('E', 'I', 'ALI', 'P', 'LTP', 'NMI')))
+
+print("ORIGINAL")
+cm_pivot_table0
+print("NEW")
+cm_pivot_table

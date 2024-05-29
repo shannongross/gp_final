@@ -18,8 +18,7 @@ print(paste("Your working dir has been set to:", HOME_DIR))
 
 
 ############################# COMBINE ALL RESULTS ##############################
-# model_version <- "DraftFinalModels2" 
-model_version <- "FinalModelQC_Apr2024"
+model_version <- "Final_GP_Model"
 
 parent_path <- paste0(getwd(), "/output/models/", model_version)
 myfiles <- list.files(parent_path, full.names = T, all.files = TRUE,

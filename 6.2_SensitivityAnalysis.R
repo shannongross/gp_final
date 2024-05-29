@@ -23,10 +23,10 @@ library(readxl)
 
 graphics.off()
 
-model_version <- "FinalModelQC_Apr2024"
+model_version <- "Final_GP_Model"
 chosen_model <- "NoGIS_Unstrat"
 chosen_version <- "V5"
-CURRENT_REGION_DISPLAY <- "Great Plains V5"
+CURRENT_REGION_DISPLAY <- "Great Plains Final"
 plotwidth <- 10.5
 numTrees <- 1500
 
@@ -41,35 +41,19 @@ print(paste("Your working dir has been set to:", HOME_DIR))
 parent_path <- paste0(HOME_DIR, "/output/models/", model_version,
                       "/", chosen_model,"/", chosen_version, "_", chosen_model)
 
-out_dir <- paste0(parent_path, "/sensitivity_analyis")
-if (!dir.exists(out_dir)){dir.create(out_dir)}
+output_path <- paste0(parent_path, "/FINAL_RESULTS")
+if (!dir.exists(output_path)){dir.create(output_path)}
 
-print(paste("Your output dir has been set to:", out_dir))
-# Get results csv
-df_refined_results <- read_csv(paste0(parent_path,"/debug/full_results.csv"))
+sa_dir <- paste0(output_path, "/sensitivity_analyis")
+if (!dir.exists(sa_dir)){dir.create(sa_dir)}
+
+################################ GET MODEL DATA ################################
+df_refined_results <- read_csv(paste0(output_path, "/GreatPlainsFinalResults.csv"))
+
 # Explicitly set datatypes
 df_refined_results$Class <- as.factor(df_refined_results$Class)
-################################ GET MODEL DATA ################################
+df_input <- df_refined_results
 
-# # Get input dataset (contains augmented training, testing data)
-# df_input <- read_csv(paste0(HOME_DIR,"/input/processed/df_model_aug.csv"))
-# 
-# Explicitly set datatypes
-# df_input$Class <- as.factor(df_input$Class)
-# df_input$Region_detail <- as.factor(df_input$Region_detail)
-
-# # Create Strata column
-# df_input <- df_input %>% mutate(Strata = Region_detail)
-# 
-# ############################## CREATE NEW METRICS ##############################
-# df_input <- df_input %>% mutate(
-#   TotalAbund_0_10 = case_when(TotalAbundance==0~0, 
-#                               ((TotalAbundance>0) & (TotalAbundance<=10)~1),
-#                               TotalAbundance>=10~2),
-#   UplandRooted_PA = case_when(UplandRootedPlants_score<3~0, T~1),
-#   # ephISAabund_PA = case_when(ephinteph_ISA_abundance==0~0, T~1),
-#   hydrophytes_2 = case_when(hydrophytes_present<3~0, T~1)
-# )  
 
 ############################## CURRENT METRICS #################################
 #NOTE: feed the list of "current metrics" in the same order that the model was
@@ -81,7 +65,6 @@ current_metrics <- c( "BankWidthMean",
                       "DifferencesInVegetation_score",
                       "RifflePoolSeq_score",
                       "SedimentOnPlantsDebris_score", 
-                      # "ephISAabund_PA", 
                       "UplandRooted_PA",
                       "hydrophytes_2",
                       "TotalAbund_0_10" )
@@ -107,257 +90,617 @@ RF_initial <- randomForest(x=X_train,
                            proximity=T)
 options(dplyr.summarise.inform = FALSE)
 
-# define a small dataset to do this perturbation on. 
-testsample <- sample_n(df_TEST, 7) #Create fake data for 5 random sites
-testsample <- testsample[, c("ParentGlobalID","SiteCode","Class", current_metrics)]
-testsample
-
-
-######################### Perturb input data (automatically) ###################
-# Inputs:
-# - perturbed_metric: Name of the variable you're going to perturb
-# - nsteps: How many intervals you want to create
-# This function takes the max and min of the metric, divides by the nsteps you
-# specify, and then iteratively sets the metric equal to each step value and
-# gets a new prediction. Result is a dataframe of results.
-
-sensitivity_analysis_autobound <- function(nsteps, perturbed_metric){
-  print(paste("Perturbing:", perturbed_metric))
-  minb=min(df_input[[perturbed_metric]])
-  maxb=max(df_input[[perturbed_metric]])
-  stepb=round((maxb- minb)/nsteps)
-  if (stepb == 0){
-    stepb=1
-  }
-  print(paste("nsteps:", nsteps))
-  print(paste("minb:", minb))
-  print(paste("maxb:", maxb))
-  print(paste("stepb:", stepb))
-  
-  originalvalue <- testsample[[perturbed_metric]]
-  
-  originalpredsample <- predict(RF_initial, newdata = testsample, type="prob") %>% 
-    as_tibble() %>% mutate(
-      RF_Prediction_50=case_when(
-        E>=.5~"E",
-        I>=.5~"I",
-        P>=.5~"P",
-        P>E~"ALI",
-        E>P~"LTP",
-        P==E & I>P~"NMI",
-        P==E & I<=P~"NMI",
-        T~"Other"))
-  
-  datalist = list()
-  
-  for (r in seq(minb, maxb, by=stepb)){
-    testsample[[perturbed_metric]] <- r
-    pred <- predict(RF_initial, newdata = testsample[, c("Class", current_metrics)])
-    predsample <- predict(RF_initial, newdata = testsample, type="prob")
-    predclass <- colnames(predsample)[apply(predsample, 1, which.max)]
-    predprod <- max(predsample)
-    
-    # Test results
-    test_results <- tibble(testsample) %>%
-      add_column(pred) %>%
-      rename(RF_Prediction_Majority="pred") %>%
-      bind_cols(predsample %>%as_tibble())
-    
-    comb_results <- test_results %>% mutate(
-      #Reclassify with 50% minimum probability
-      RF_Prediction_50_Perturbed=case_when(
-        E>=.5~"E",
-        I>=.5~"I",
-        P>=.5~"P",
-        P>E~"ALI",
-        E>P~"LTP",
-        P==E & I>P~"NMI",
-        P==E & I<=P~"NMI",
-        T~"Other"),
-      Metric_Perturbed = perturbed_metric,
-      Original_Value = originalvalue,
-      Original_RF_Prediction_50 = originalpredsample$RF_Prediction_50
-      
-    ) 
-    # print(comb_results$RF_Prediction_50 )
-    # datalist[[r]] <- comb_results
-    datalist <- rbind(datalist, comb_results)
-    
-  }
-  return (datalist)
-}
-
-# Use the sensitivity_analysis_autobound function to generate fake data
-res_dif <- sensitivity_analysis_autobound(
-  perturbed_metric="DifferencesInVegetation_score",
-  nsteps=4)
-res_ban <- sensitivity_analysis_autobound(
-  perturbed_metric="BankWidthMean",
-  nsteps=20)
-res_sub <- sensitivity_analysis_autobound(
-  perturbed_metric="SubstrateSorting_score",
-  nsteps=4)
-res_rif <- sensitivity_analysis_autobound(
-  perturbed_metric="RifflePoolSeq_score",
-  nsteps=4)
-res_sed <- sensitivity_analysis_autobound(
-  perturbed_metric="SedimentOnPlantsDebris_score",
-  nsteps=4)
-# res_eph <- sensitivity_analysis_autobound(
-#   perturbed_metric="ephISAabund_PA",
+# # define a small dataset to do this perturbation on. 
+# testsample <- sample_n(df_TEST, 7) #Create fake data for 5 random sites
+# testsample <- testsample[, c("ParentGlobalID","SiteCode","Class", current_metrics)]
+# testsample
+# 
+# 
+# ########################### EDA PLOTS OF ALL METRICS FOR SE ###########################
+# for (metric in c(current_metrics)) {
+#   print(metric)
+# 
+#   #boxplot
+#   metric_box <- ggplot(df_refined_results, aes(x = Class,
+#                             y = eval(parse(text = metric)), fill = Class)) +
+#     geom_boxplot() +
+#     stat_summary(fun = "median", geom = "point", shape = 8,
+#                  size = 3, color = "red") +
+#     labs(y="", x="")
+#   # Histogram 
+#   if (metric %in% c("SubstrateSorting_score",
+#                     "hydrophytes_2",
+#                     "DifferencesInVegetation_score",
+#                     "RifflePoolSeq_score",
+#                     "TotalAbund_0_10",
+#                     "UplandRooted_PA",
+#                     "SedimentOnPlantsDebris_score",
+#                     "FibrousRootedPlants_score",
+#                     "UplandRootedPlants_score")){
+#     metric_hist <- df_refined_results %>% ggplot(
+#           aes(x=eval(parse(text = metric)))) +
+#       geom_histogram(aes(y=..density.., fill=Class), #alpha=0.6, 
+#                      position = 'dodge') +
+#       labs(x="value", y="",
+#            caption=paste0("(Great Plains Final)\n Number of Samples: ",
+#                           dim(df_refined_results)[1],
+#                           "\n Number of Sites: ",
+#                           length(unique(df_refined_results$SiteCode))[1])
+#       )
+#   } else {
+#     metric_hist <- df_refined_results %>% ggplot(
+#             aes(x=eval(parse(text = metric)))) +
+#       geom_histogram(aes(y=..density.., fill=Class), alpha=0.6, 
+#                      position = 'identity') +
+#       labs(x="value", y="",
+#            caption=paste0("(Great Plains Final)\n Number of Samples: ",
+#                           dim(df_refined_results)[1],
+#                           "\n Number of Sites: ",
+#                           length(unique(df_refined_results$SiteCode))[1])
+#       )
+#   }
+#   metric_dens <- df_refined_results %>% ggplot(
+#           aes(x=eval(parse(text = metric)))) +
+#           geom_density(aes(y=..density.., fill=Class), alpha=0.6) +
+#     labs(x="value", y="",
+#          caption=paste0("(Great Plains Final)\n Number of Samples: ",
+#                         dim(df_refined_results)[1],
+#                         "\n Number of Sites: ",
+#                         length(unique(df_refined_results$SiteCode))[1])
+#     )
+#   
+#   metric_box_region <- ggplot(df_refined_results, aes(x = Dataset,
+#                                      y = eval(parse(text = metric)), 
+#                                      fill = Dataset)) +
+#     geom_boxplot() +
+#     stat_summary(fun = "median", geom = "point", shape = 8,
+#                  size = 3, color = "red") +
+#     labs(x="", y="")
+#   metric_box_region
+#   
+#   
+#   ggsave(paste0(sa_dir, "/candidates/GP_metric_", metric,".png"),
+#          arrangeGrob( metric_hist,
+#                       arrangeGrob(metric_box, metric_box_region, ncol=2),
+#                       nrow = 2,
+#                       top=metric ),
+#          dpi=300, height=6, width=7)
+#   ggsave(paste0(sa_dir, "/candidates/GP_metric_dens_", metric,".png"),
+#          arrangeGrob( metric_dens,
+#                       arrangeGrob(metric_box, metric_box_region, ncol=2),
+#                       nrow = 2,
+#                       top=metric ),
+#          dpi=300, height=6, width=7)
+# }
+# ################################################################################
+# 
+# 
+# 
+# ######################### Perturb input data (automatically) ###################
+# # Inputs:
+# # - perturbed_metric: Name of the variable you're going to perturb
+# # - nsteps: How many intervals you want to create
+# # This function takes the max and min of the metric, divides by the nsteps you
+# # specify, and then iteratively sets the metric equal to each step value and
+# # gets a new prediction. Result is a dataframe of results.
+# 
+# sensitivity_analysis_autobound <- function(nsteps, perturbed_metric){
+#   print(paste("Perturbing:", perturbed_metric))
+#   minb=min(df_input[[perturbed_metric]])
+#   maxb=max(df_input[[perturbed_metric]])
+#   stepb=round((maxb- minb)/nsteps)
+#   if (stepb == 0){
+#     stepb=1
+#   }
+#   print(paste("nsteps:", nsteps))
+#   print(paste("minb:", minb))
+#   print(paste("maxb:", maxb))
+#   print(paste("stepb:", stepb))
+#   
+#   originalvalue <- testsample[[perturbed_metric]]
+#   
+#   originalpredsample <- predict(RF_initial, newdata = testsample, type="prob") %>% 
+#     as_tibble() %>% mutate(
+#       RF_Prediction_50=case_when(
+#         E>=.5~"E",
+#         I>=.5~"I",
+#         P>=.5~"P",
+#         P>E~"ALI",
+#         E>P~"LTP",
+#         P==E & I>P~"NMI",
+#         P==E & I<=P~"NMI",
+#         T~"Other"))
+#   
+#   datalist = list()
+#   
+#   for (r in seq(minb, maxb, by=stepb)){
+#     testsample[[perturbed_metric]] <- r
+#     pred <- predict(RF_initial, newdata = testsample[, c("Class", current_metrics)])
+#     predsample <- predict(RF_initial, 
+#                           newdata = testsample, 
+#                           type="prob")
+#     predclass <- colnames(predsample)[apply(predsample, 1, which.max)]
+#     predprod <- max(predsample)
+#     
+#     # Test results
+#     test_results <- tibble(testsample) %>%
+#       add_column(pred) %>%
+#       rename(RF_Prediction_Majority="pred") %>%
+#       bind_cols(predsample %>%as_tibble())
+#     
+#     comb_results <- test_results %>% mutate(
+#       #Reclassify with 50% minimum probability
+#       RF_Prediction_50_Perturbed=case_when(
+#         E>=.5~"E",
+#         I>=.5~"I",
+#         P>=.5~"P",
+#         P>E~"ALI",
+#         E>P~"LTP",
+#         P==E & I>P~"NMI",
+#         P==E & I<=P~"NMI",
+#         T~"Other"),
+#       Metric_Perturbed = perturbed_metric,
+#       Original_Value = originalvalue,
+#       Original_RF_Prediction_50 = originalpredsample$RF_Prediction_50
+#       
+#     ) 
+#     # print(comb_results$RF_Prediction_50 )
+#     # datalist[[r]] <- comb_results
+#     datalist <- rbind(datalist, comb_results)
+#     
+#   }
+#   return (datalist)
+# }
+# 
+# # Use the sensitivity_analysis_autobound function to generate fake data
+# res_dif <- sensitivity_analysis_autobound(
+#   perturbed_metric="DifferencesInVegetation_score",
+#   nsteps=4)
+# res_ban <- sensitivity_analysis_autobound(
+#   perturbed_metric="BankWidthMean",
+#   nsteps=20)
+# res_sub <- sensitivity_analysis_autobound(
+#   perturbed_metric="SubstrateSorting_score",
+#   nsteps=4)
+# res_rif <- sensitivity_analysis_autobound(
+#   perturbed_metric="RifflePoolSeq_score",
+#   nsteps=4)
+# res_sed <- sensitivity_analysis_autobound(
+#   perturbed_metric="SedimentOnPlantsDebris_score",
+#   nsteps=4)
+# # res_eph <- sensitivity_analysis_autobound(
+# #   perturbed_metric="ephISAabund_PA",
+# #   nsteps=2)
+# res_up <- sensitivity_analysis_autobound(
+#   perturbed_metric="UplandRooted_PA",
 #   nsteps=2)
-res_up <- sensitivity_analysis_autobound(
-  perturbed_metric="UplandRooted_PA",
-  nsteps=2)
-res_hyd <- sensitivity_analysis_autobound(
-  perturbed_metric="hydrophytes_2",
-  nsteps=3)
-res_tot <- sensitivity_analysis_autobound(
-  perturbed_metric="TotalAbund_0_10",
-  nsteps=3)
-#Combine all the fake data generate above into a single dataframe
-data <- rbind(res_dif, res_ban, res_sub, res_rif, res_sed, #res_eph, 
-              res_up, res_hyd, res_tot)
+# res_hyd <- sensitivity_analysis_autobound(
+#   perturbed_metric="hydrophytes_2",
+#   nsteps=3)
+# res_tot <- sensitivity_analysis_autobound(
+#   perturbed_metric="TotalAbund_0_10",
+#   nsteps=3)
+# #Combine all the fake data generate above into a single dataframe
+# data <- rbind(res_dif, res_ban, res_sub, res_rif, res_sed, #res_eph, 
+#               res_up, res_hyd, res_tot)
+# 
+# #Loop through each metric in the fake datasets above and plot 
+# for (metric in current_metrics) {#c("BankWidthMean")
+#   print(metric)
+#   
+#   sa_data <- data%>%filter(Metric_Perturbed==metric)%>%
+#     group_by(ParentGlobalID)
+#   sa_data$Original_RF_Prediction_50 <- as.factor(
+#     sa_data$Original_RF_Prediction_50)
+#   
+#   dotplot1 <- ggplot(data=sa_data,
+#                      aes(x=RF_Prediction_50_Perturbed, 
+#                          y=!!sym(metric),
+#                          color=RF_Prediction_50_Perturbed),
+#                      size=2, shape=2)+
+#     geom_point()+
+#     geom_point(data=sa_data,
+#                aes(x=Original_RF_Prediction_50,
+#                    y=Original_Value),
+#                shape=4, size=4, color="black", #show.legend=TRUE
+#                #legend=FALSE
+#     )+
+#     
+#     xlab("Prediction")+
+#     coord_flip()+
+#     labs(title=paste(metric, "Sensitivity Analysis"),
+#          subtitle="Perturb metric to see when predicted class changes"
+#     )+
+#     facet_wrap(~ParentGlobalID, ncol = 1)+
+#     # scale_y_continuous(limits=c(0,1), breaks=c(0,.5,1), name="Performance")+
+#     theme_bw() +
+#     theme(legend.position="bottom")
+#   print(dotplot1)
+#   ggsave(dotplot1, height=11.2, width=7, units="in", dpi=900,
+#          filename=paste0(sa_dir, "/",metric,".png"))
+#   
+# }
 
-#Loop through each metric in the fake datasets above and plot 
-for (metric in current_metrics) {#c("BankWidthMean")
+
+# ######################### Perturb input data (specify intervals) ###################
+# # Inputs:
+# # - perturbed_metric: Name of the variable you're going to perturb
+# # - minb: Floor of your boundary for this metric
+# # - maxb: Ceiling of your boundary for this metric
+# # - stepb: Step size
+# 
+# # This function is more hands on than sensitivity_analysis_autobound() because you
+# # need to fully describe how you want to create the fake data. But otherwise this
+# # function is the same.
+# 
+# 
+# sensitivity_analysis_setbound <- function(perturbed_metric, minb, maxb, stepb){
+#   originalvalue <- testsample[[perturbed_metric]]
+#   
+#   originalpredsample <- predict(RF_initial, newdata = testsample, type="prob") %>%
+#     as_tibble() %>% mutate(
+#       RF_Prediction_50=case_when(
+#         E>=.5~"E",
+#         I>=.5~"I",
+#         P>=.5~"P",
+#         P>E~"ALI",
+#         E>P~"LTP",
+#         P==E & I>P~"NMI",
+#         P==E & I<=P~"NMI",
+#         T~"Other"))
+#   
+#   datalist = list()
+#   
+#   for (r in seq(minb, maxb, by=stepb)){
+#     
+#     testsample[[perturbed_metric]] <- r
+#     pred <- predict(RF_initial, newdata = testsample[, c("Class", current_metrics)])
+#     predsample <- predict(RF_initial, newdata = testsample, type="prob")
+#     predclass <- colnames(predsample)[apply(predsample, 1, which.max)]
+#     predprod <- max(predsample)
+#     
+#     # Test results
+#     test_results <- tibble(testsample) %>%
+#       add_column(pred) %>%
+#       rename(RF_Prediction_Majority="pred") %>%
+#       bind_cols(predsample %>%as_tibble())
+#     
+#     comb_results <- test_results %>% mutate(
+#       #Reclassify with 50% minimum probability
+#       RF_Prediction_50_Perturbed=case_when(
+#         E>=.5~"E",
+#         I>=.5~"I",
+#         P>=.5~"P",
+#         P>E~"ALI",
+#         E>P~"LTP",
+#         P==E & I>P~"NMI",
+#         P==E & I<=P~"NMI",
+#         T~"Other"),
+#       Metric_Perturbed = perturbed_metric,
+#       Original_Value = originalvalue,
+#       Original_RF_Prediction_50 = originalpredsample$RF_Prediction_50
+#       
+#     )
+#     # print(comb_results$RF_Prediction_50 )
+#     # datalist[[r]] <- comb_results
+#     datalist <- rbind(datalist, comb_results)
+#     
+#   }
+#   return (datalist)
+# }
+# res <- sensitivity_analysis_setbound(perturbed_metric="BankWidthMean",
+#                                      minb=0,
+#                                      maxb=100,
+#                                      stepb=20)
+# res
+# 
+# 
+# ########################### Spearman Correlation  ############################## 
+# ## Calculate Spearman correlation coefficients
+# cor_matrix <- cor(old_data2, method = "spearman")
+# # 
+# # Create a correlation heatmap with color gradients
+# corrplot(
+#   cor_matrix,
+#   method = "color",
+#   type = "lower",
+#   tl.cex = 0.7,
+#   tl.col = "black",
+#   tl.srt = 45,
+#   addCoef.col = "black",
+#   main = "Spearman Correlation Heatmap"
+# )
+# ################################################################################ 
+gp_subset <- df_refined_results[, c("ParentGlobalID",
+                                    "SiteCode",
+                                    "Class", 
+                                    "RF_Prediction_50", 
+                                    current_metrics)]
+gp_subset_crossed <- crossing(Change = factor(c(
+  "-9 Unit", "-8 Unit", "-7 Unit", "-6 Unit", 
+  "-5 Unit", "-4 Unit", "-3 Unit", "-2 Unit","-1 Unit",
+  "0", "+1 Unit", "+2 Unit", "+3 Unit","+4 Unit","+5 Unit",
+  "+6 Unit","+7 Unit","+8 Unit","+9 Unit"),
+  levels = c("-9 Unit", "-8 Unit", "-7 Unit", "-6 Unit", 
+   "-5 Unit", "-4 Unit", "-3 Unit", "-2 Unit","-1 Unit",
+  "0", "+1 Unit", "+2 Unit", "+3 Unit","+4 Unit","+5 Unit",
+  "+6 Unit","+7 Unit","+8 Unit","+9 Unit")),
+  Indicator=current_metrics) %>%
+  crossing(gp_subset) %>%
+  mutate(
+    DifferencesInVegetation_score = 
+       case_when(Indicator!="DifferencesInVegetation_score"~DifferencesInVegetation_score,
+                 Change=="-5 Unit"~DifferencesInVegetation_score-2.5,
+                 Change=="-4 Unit"~DifferencesInVegetation_score-2,
+                 Change=="-3 Unit"~DifferencesInVegetation_score-1.5,
+                 Change=="-2 Unit"~DifferencesInVegetation_score-1,
+                 Change=="-1 Unit"~DifferencesInVegetation_score-0.5,
+                 Change=="0"~DifferencesInVegetation_score,
+                 Change=="+1 Unit"~DifferencesInVegetation_score+0.5,
+                 Change=="+2 Unit"~DifferencesInVegetation_score+1,
+                 Change=="+3 Unit"~DifferencesInVegetation_score+1.5,
+                 Change=="+4 Unit"~DifferencesInVegetation_score+2,
+                 Change=="+5 Unit"~DifferencesInVegetation_score+2.5,
+                 T~NA_real_),
+    RifflePoolSeq_score = 
+       case_when(Indicator!="RifflePoolSeq_score"~RifflePoolSeq_score,
+                 Change=="-5 Unit"~RifflePoolSeq_score-2.5,
+                 Change=="-4 Unit"~RifflePoolSeq_score-2,
+                 Change=="-3 Unit"~RifflePoolSeq_score-1.5,
+                 Change=="-2 Unit"~RifflePoolSeq_score-1,
+                 Change=="-1 Unit"~RifflePoolSeq_score-0.5,
+                 Change=="0"~RifflePoolSeq_score,
+                 Change=="+1 Unit"~RifflePoolSeq_score+0.5,
+                 Change=="+2 Unit"~RifflePoolSeq_score+1,
+                 Change=="+3 Unit"~RifflePoolSeq_score+1.5,
+                 Change=="+4 Unit"~RifflePoolSeq_score+2,
+                 Change=="+5 Unit"~RifflePoolSeq_score+2.5,
+                 T~NA_real_),
+    SubstrateSorting_score = 
+      case_when(Indicator!="SubstrateSorting_score"~SubstrateSorting_score,
+                Change=="-5 Unit"~SubstrateSorting_score-2.5,
+                Change=="-4 Unit"~SubstrateSorting_score-2,
+                Change=="-3 Unit"~SubstrateSorting_score-1.5,
+                Change=="-2 Unit"~SubstrateSorting_score-1,
+                Change=="-1 Unit"~SubstrateSorting_score-0.5,
+                Change=="0"~SubstrateSorting_score,
+                Change=="+1 Unit"~SubstrateSorting_score+0.5,
+                Change=="+2 Unit"~SubstrateSorting_score+1,
+                Change=="+3 Unit"~SubstrateSorting_score+1.5,
+                Change=="+4 Unit"~SubstrateSorting_score+2,
+                Change=="+5 Unit"~SubstrateSorting_score+2.5,
+                T~NA_real_),
+    SedimentOnPlantsDebris_score = 
+      case_when(Indicator!="SedimentOnPlantsDebris_score"~SedimentOnPlantsDebris_score,
+                Change=="-5 Unit"~SedimentOnPlantsDebris_score-1.25,
+                Change=="-4 Unit"~SedimentOnPlantsDebris_score-1,
+                Change=="-3 Unit"~SedimentOnPlantsDebris_score-0.75,
+                Change=="-2 Unit"~SedimentOnPlantsDebris_score-0.5,
+                Change=="-1 Unit"~SedimentOnPlantsDebris_score-0.25,
+                Change=="0"~SedimentOnPlantsDebris_score,
+                Change=="+1 Unit"~SedimentOnPlantsDebris_score+0.25,
+                Change=="+2 Unit"~SedimentOnPlantsDebris_score+0.5,
+                Change=="+3 Unit"~SedimentOnPlantsDebris_score+0.75,
+                Change=="+4 Unit"~SedimentOnPlantsDebris_score+1,
+                Change=="+5 Unit"~SedimentOnPlantsDebris_score+1.25,
+                T~NA_real_),
+    UplandRooted_PA = 
+      case_when(Indicator!="UplandRooted_PA"~UplandRooted_PA,
+                Change=="-1 Unit"~UplandRooted_PA-1,
+                Change=="0"~UplandRooted_PA,
+                Change=="+1 Unit"~UplandRooted_PA+1,
+                T~NA_real_),
+    hydrophytes_2 = 
+      case_when(Indicator!="hydrophytes_2"~hydrophytes_2,
+                Change=="-1 Unit"~hydrophytes_2-1,
+                Change=="0"~hydrophytes_2,
+                Change=="+1 Unit"~hydrophytes_2+1,
+                T~NA_real_),
+    TotalAbund_0_10 = 
+      case_when(Indicator!="TotalAbund_0_10"~TotalAbund_0_10,
+                Change=="-2 Unit"~TotalAbund_0_10-2,
+                Change=="-1 Unit"~TotalAbund_0_10-1,
+                Change=="0"~TotalAbund_0_10,
+                Change=="+1 Unit"~TotalAbund_0_10+1,
+                Change=="+2 Unit"~TotalAbund_0_10+2,
+                T~NA_real_),
+    BankWidthMean = 
+      case_when(Indicator!="BankWidthMean"~BankWidthMean,
+                Change=="-9 Unit"~BankWidthMean*.1,
+                Change=="-8 Unit"~BankWidthMean*.2,
+                Change=="-7 Unit"~BankWidthMean*.3,
+                Change=="-6 Unit"~BankWidthMean*.4,
+                Change=="-5 Unit"~BankWidthMean*.5,
+                Change=="-4 Unit"~BankWidthMean*.6,
+                Change=="-3 Unit"~BankWidthMean*.7,
+                Change=="-2 Unit"~BankWidthMean*.8,
+                Change=="-1 Unit"~BankWidthMean*.9,
+                Change=="0"~BankWidthMean,
+                Change=="+1 Unit"~BankWidthMean*1.1,
+                Change=="+2 Unit"~BankWidthMean*1.2,
+                Change=="+3 Unit"~BankWidthMean*1.3,
+                Change=="+4 Unit"~BankWidthMean*1.4,
+                Change=="+5 Unit"~BankWidthMean*1.5,
+                Change=="+6 Unit"~BankWidthMean*1.6,
+                Change=="+7 Unit"~BankWidthMean*1.7,
+                Change=="+8 Unit"~BankWidthMean*1.8,
+                Change=="+9 Unit"~BankWidthMean*1.9,
+                T~NA_real_)
+  ) %>%
+  #Drop impossible values
+  filter(DifferencesInVegetation_score>=0, DifferencesInVegetation_score<=3,
+         RifflePoolSeq_score>=0, RifflePoolSeq_score<=3,
+         SubstrateSorting_score>=0, SubstrateSorting_score<=3,
+         SedimentOnPlantsDebris_score>=0, SedimentOnPlantsDebris_score<=1.5,
+         UplandRooted_PA>=0, UplandRooted_PA<=1,
+         hydrophytes_2>=0, hydrophytes_2<=1,
+         TotalAbund_0_10>=0, TotalAbund_0_10<=2,
+         BankWidthMean>=0, BankWidthMean<=max(gp_subset$BankWidthMean)
+  ) %>%
+  na.omit()
+
+
+gp_subset_crossed2 <- gp_subset_crossed %>%
+  bind_cols(
+    predict(RF_initial, newdata = gp_subset_crossed, type="prob") %>%
+      as_tibble() %>%
+      mutate( Class_predicted=case_when(E>=.5~"E",
+                                        I>=.5~"I",
+                                        P>=.5~"P",
+                                        P>E~"ALI",
+                                        E>P~"LTP",
+                                        P==E & I>P~"NMI", 
+                                        P==E & I<=P~"NMI",
+                                        T~"Other"))
+  ) %>%
+  mutate(SamePrediction=RF_Prediction_50==Class_predicted)
+
+
+sensitivity_plot <- gp_subset_crossed2 %>%
+  # filter(Indicator %in% c('DifferencesInVegetation_score')) %>%
+  group_by(Indicator, Change) %>%
+  summarise(n_tests=length(SamePrediction),
+            n_unchanged=sum(SamePrediction)) %>%
+  ungroup() %>%
+  mutate(PctUnchanged=n_unchanged/n_tests,
+         ChangeDir = case_when(
+           Change %in% c("-5 Unit","-4 Unit","-3 Unit","-2 Unit","-1 Unit")~"Decreased",
+           Change %in% c("+1 Unit","+2 Unit","+3 Unit","+4 Unit","+5 Unit")~"Increased",
+           Change %in% c("0")~"Unchanged",
+           T~"OTHER"),
+        
+         Indicator_label = case_when(
+           Indicator=="BankWidthMean"~"Bank width",
+           Indicator=="SedimentOnPlantsDebris_score"~"Sediment On Plants Debris score",
+           Indicator=="UplandRooted_PA"~"UplandRooted_PA",
+           Indicator=="hydrophytes_2"~"hydrophytes_2",
+           Indicator=="TotalAbund_0_10"~"TotalAbund_0_10",
+           Indicator=="SubstrateSorting_score"~"Substrate sorting score",
+           Indicator=="DifferencesInVegetation_score"~"Differences in vegetation",
+           Indicator=="UplandRootedPlants_score"~"Upland rooted plants",
+           T~"OTHER"))
+
+
+for (metric in c("SubstrateSorting_score", #0.00 1.50 3.00 2.25 0.75
+                 "DifferencesInVegetation_score", #0.0 2.0 1.0 2.5 3.0 1.5 0.5
+                 "RifflePoolSeq_score"#, #0.0 2.0 3.0 1.0 0.5 1.5 2.5
+                 )) {
   print(metric)
   
-  sa_data <- data%>%filter(Metric_Perturbed==metric)%>%
-    group_by(ParentGlobalID)
-  sa_data$Original_RF_Prediction_50 <- as.factor(
-    sa_data$Original_RF_Prediction_50)
-  
-  dotplot1 <- ggplot(data=sa_data,
-                     aes(x=RF_Prediction_50_Perturbed, 
-                         y=!!sym(metric),
-                         color=RF_Prediction_50_Perturbed),
-                     size=2, shape=2)+
-    geom_point()+
-    geom_point(data=sa_data,
-               aes(x=Original_RF_Prediction_50,
-                   y=Original_Value),
-               shape=4, size=4, color="black", #show.legend=TRUE
-               #legend=FALSE
-    )+
+  sensitivity_plot2 <- sensitivity_plot %>%
+    filter(Indicator==metric)
     
-    xlab("Prediction")+
-    coord_flip()+
-    labs(title=paste(metric, "Sensitivity Analysis"),
-         subtitle="Perturb metric to see when predicted class changes"
-    )+
-    facet_wrap(~ParentGlobalID, ncol = 1)+
-    # scale_y_continuous(limits=c(0,1), breaks=c(0,.5,1), name="Performance")+
-    theme_bw() +
-    theme(legend.position="bottom")
-  print(dotplot1)
-  ggsave(dotplot1, height=11.2, width=7, units="in", dpi=900,
-         filename=paste0(out_dir, "/",metric,".png"))
+  sa_plot <- ggplot(data=sensitivity_plot2,  
+    aes(x=Change, y=PctUnchanged))+
+    geom_point(aes(color=PctUnchanged==1,
+                   size=n_tests))+
+    scale_color_brewer(palette="Set1", name="Did any\nclassifications\nchange?", 
+                       labels=c("Yes","No"))+
+    xlab(paste0("\nChange in indicator",metric,"\n(Unit=0.5)"))+
+    scale_size_continuous(name="# samples\nevaluated")+
+    scale_y_continuous(limits=c(0,1))+
+    ylab("% of samples with unchanged classifications\n")+
+    ggtitle(paste0(metric, " Sensitivity Analysis"))
+  print(sa_plot)
+  ggsave(sa_plot, 
+       filename=paste0(sa_dir, "/sensitivity_plot_",metric,".png"), 
+       height=6, width=8 )
+
+}
+
+for (metric in c(
+  "SedimentOnPlantsDebris_score" #1.00 0.00 1.25 0.50 1.50 0.25 0.75
+)) {
+  print(metric)
+  
+  sensitivity_plot2 <- sensitivity_plot %>%
+    filter(Indicator==metric)
+  
+  sa_plot <- ggplot(data=sensitivity_plot2,  
+                    aes(x=Change, y=PctUnchanged))+
+    geom_point(aes(color=PctUnchanged==1,
+                   size=n_tests))+
+    scale_color_brewer(palette="Set1", name="Did any\nclassifications\nchange?", 
+                       labels=c("Yes","No"))+
+    xlab(paste0("\nChange in indicator",metric,"\n(Unit=0.25)"))+
+    scale_size_continuous(name="# samples\nevaluated")+
+    scale_y_continuous(limits=c(0,1))+
+    ylab("% of samples with unchanged classifications\n")+
+    ggtitle(paste0(metric, " Sensitivity Analysis"))
+  print(sa_plot)
+  ggsave(sa_plot, 
+         filename=paste0(sa_dir, "/sensitivity_plot_",metric,".png"), 
+         height=6, width=8 )
   
 }
 
 
-######################### Perturb input data (specify intervals) ###################
-# Inputs:
-# - perturbed_metric: Name of the variable you're going to perturb
-# - minb: Floor of your boundary for this metric
-# - maxb: Ceiling of your boundary for this metric
-# - stepb: Step size
-
-# This function is more hands on than sensitivity_analysis_autobound() because you
-# need to fully describe how you want to create the fake data. But otherwise this
-# function is the same.
-
-
-sensitivity_analysis_setbound <- function(perturbed_metric, minb, maxb, stepb){
-  originalvalue <- testsample[[perturbed_metric]]
+for (metric in c(
+  "UplandRooted_PA",
+  "hydrophytes_2",
+  "TotalAbund_0_10" 
+)) {
+  sensitivity_plot2 <- sensitivity_plot %>%
+    filter(Indicator==metric)
   
-  originalpredsample <- predict(RF_initial, newdata = testsample, type="prob") %>%
-    as_tibble() %>% mutate(
-      RF_Prediction_50=case_when(
-        E>=.5~"E",
-        I>=.5~"I",
-        P>=.5~"P",
-        P>E~"ALI",
-        E>P~"LTP",
-        P==E & I>P~"NMI",
-        P==E & I<=P~"NMI",
-        T~"Other"))
+  sa_plot <- ggplot(data=sensitivity_plot2,  
+                    aes(x=Change, y=PctUnchanged))+
+    geom_point(aes(color=PctUnchanged==1,
+                   size=n_tests))+
+    scale_color_brewer(palette="Set1", name="Did any\nclassifications\nchange?", 
+                       labels=c("Yes","No"))+
+    xlab(paste0("\nChange in indicator",metric,"\n(Unit=1)"))+
+    scale_size_continuous(name="# samples\nevaluated")+
+    scale_y_continuous(limits=c(0,1))+
+    ylab("% of samples with unchanged classifications\n")+
+    ggtitle(paste0(metric, " Sensitivity Analysis"))
+  print(sa_plot)
+  ggsave(sa_plot, 
+         filename=paste0(sa_dir, "/sensitivity_plot_",metric,".png"), 
+         height=6, width=8 )
   
-  datalist = list()
-  
-  for (r in seq(minb, maxb, by=stepb)){
-    
-    testsample[[perturbed_metric]] <- r
-    pred <- predict(RF_initial, newdata = testsample[, c("Class", current_metrics)])
-    predsample <- predict(RF_initial, newdata = testsample, type="prob")
-    predclass <- colnames(predsample)[apply(predsample, 1, which.max)]
-    predprod <- max(predsample)
-    
-    # Test results
-    test_results <- tibble(testsample) %>%
-      add_column(pred) %>%
-      rename(RF_Prediction_Majority="pred") %>%
-      bind_cols(predsample %>%as_tibble())
-    
-    comb_results <- test_results %>% mutate(
-      #Reclassify with 50% minimum probability
-      RF_Prediction_50_Perturbed=case_when(
-        E>=.5~"E",
-        I>=.5~"I",
-        P>=.5~"P",
-        P>E~"ALI",
-        E>P~"LTP",
-        P==E & I>P~"NMI",
-        P==E & I<=P~"NMI",
-        T~"Other"),
-      Metric_Perturbed = perturbed_metric,
-      Original_Value = originalvalue,
-      Original_RF_Prediction_50 = originalpredsample$RF_Prediction_50
-      
-    )
-    # print(comb_results$RF_Prediction_50 )
-    # datalist[[r]] <- comb_results
-    datalist <- rbind(datalist, comb_results)
-    
-  }
-  return (datalist)
 }
-res <- sensitivity_analysis_setbound(perturbed_metric="BankWidthMean",
-                                     minb=0,
-                                     maxb=100,
-                                     stepb=20)
-res
+
+for (metric in c("BankWidthMean")) {
+  sensitivity_plot2 <- sensitivity_plot %>%
+    filter(Indicator==metric)
+  
+  sa_plot <- ggplot(data=sensitivity_plot2,  
+                    aes(x=Change, y=PctUnchanged))+
+    geom_point(aes(color=PctUnchanged==1,
+                   size=n_tests))+
+    scale_color_brewer(palette="Set1", name="Did any\nclassifications\nchange?", 
+                       labels=c("Yes","No"))+
+    xlab(paste0("\nChange in indicator",metric,"\n(Unit=1)"))+
+    scale_size_continuous(name="# samples\nevaluated")+
+    scale_y_continuous(limits=c(0,1))+
+    ylab("% of samples with unchanged classifications\n")+
+    ggtitle(paste0(metric, " Sensitivity Analysis"))
+  print(sa_plot)
+  ggsave(sa_plot, 
+         filename=paste0(sa_dir, "/sensitivity_plot_",metric,".png"), 
+         height=6, width=10 )
+  
+}
 
 
-########################### Spearman Correlation  ############################## 
-## Calculate Spearman correlation coefficients
-cor_matrix <- cor(old_data2, method = "spearman")
-# 
-# Create a correlation heatmap with color gradients
-corrplot(
-  cor_matrix,
-  method = "color",
-  type = "lower",
-  tl.cex = 0.7,
-  tl.col = "black",
-  tl.srt = 45,
-  addCoef.col = "black",
-  main = "Spearman Correlation Heatmap"
-)
-################################################################################ 
+
+
 
 
 
 ############################ Agg perturb figure ################################
-gp_subset <- df_refined_results[,  c("ParentGlobalID","SiteCode","Class", 
-                                     "RF_Prediction_50", current_metrics)]
-gp_subset_crossed <-crossing(Change = factor(c(
-  "Dec10", "Dec09", "Dec08", "Dec07","Dec06",
-  "Dec05", "Dec04", "Dec03", "Dec02","Dec01",
-  "Unchanged",
-  "Inc01","Inc02","Inc03","Inc04","Inc05",
-  "Inc06","Inc07","Inc08","Inc09","Inc10"),
+gp_subset <- df_refined_results[, c("ParentGlobalID",
+                                     "SiteCode",
+                                     "Class", 
+                                     "RF_Prediction_50", 
+                                     current_metrics)]
+gp_subset_crossed <- crossing(Change = factor(c(
+            "Dec10", "Dec09", "Dec08", "Dec07","Dec06",
+            "Dec05", "Dec04", "Dec03", "Dec02","Dec01",
+            "Unchanged",
+            "Inc01","Inc02","Inc03","Inc04","Inc05",
+            "Inc06","Inc07","Inc08","Inc09","Inc10"),
   levels = c("Dec10", "Dec09", "Dec08", "Dec07","Dec06",
              "Dec05", "Dec04", "Dec03", "Dec02","Dec01",
              "Unchanged",
@@ -525,6 +868,7 @@ sensitivity_plot <- gp_subset_crossed2 %>%
                                str_sub(Change,1,3)=="Inc"~"Increased",
                                str_sub(Change,1,3)=="Unc"~"Unchanged",
                                T~"OTHER"),
+         Increment = 0.5,
          VarGroup = case_when(Indicator %in% c("BankWidthMean")~"Continuous",
                               Indicator %in% c("DifferencesInVegetation_score",
                                                # "SedimentOnPlantsDebris_score",
@@ -578,13 +922,15 @@ sensitivity_plot$Increment_label<-factor(sensitivity_plot$Increment_label,
                                                          "0",
                                                          "+1","+2","+3","+4","+5"))
 
-sensitivity_plot_continuous<-ggplot(data=sensitivity_plot %>%
-                                         filter(VarGroup=="Continuous"), 
-                                    aes(x=Increment, y=PctUnchanged))+
+sensitivity_plot_continuous<-ggplot(data=sensitivity_plot %>% 
+  filter(Indicator=="DifferencesInVegetation_score"), 
+  aes(x=Increment, y=PctUnchanged))+
   geom_point(aes(color=PctUnchanged==1,
                  size=n_tests))+
   facet_wrap(~Indicator_label)+
-  scale_color_brewer(palette="Set1", name="Did any\nclassifications\nchange?", labels=c("Yes","No"))+
+  scale_color_brewer(palette="Set1", 
+                     name="Did any\nclassifications\nchange?", 
+                     labels=c("Yes","No"))+
   xlab("Change in indicator level (factor)") +
   scale_size_continuous(name="# samples\nevaluated")+
   scale_y_continuous(limits=c(0,1))+
@@ -595,7 +941,7 @@ sensitivity_plot_continuous<-ggplot(data=sensitivity_plot %>%
   ggtitle("Continuous indicators")
 print(sensitivity_plot_continuous)
 ggsave(sensitivity_plot_continuous, 
-       filename=paste0(out_dir, "/sensitivity_plot_continuous.png"), 
+       filename=paste0(sa_dir, "/sensitivity_plot_continuous.png"), 
        height=6, width=8 )
 
 
@@ -618,7 +964,7 @@ sensitivity_plot_ordinal<-ggplot(data=sensitivity_plot %>%
   ggtitle("Scored or count indicators")
 print(sensitivity_plot_ordinal)
 ggsave(sensitivity_plot_ordinal, 
-       filename=paste0(out_dir, "/sensitivity_plot_ordinal.png"), 
+       filename=paste0(sa_dir, "/sensitivity_plot_ordinal.png"), 
        height=6, width=12 )
 
 
@@ -654,64 +1000,63 @@ varimpplot <- varImpPlot(RF,
 
 
 
-# install.packages("permimp")
-library("permimp")
-## compute permutation importance
-set.seed(1111)
-RF <- randomForest(Class~.,
-                   data=old_data,
-                   ntree=numTrees,
-                   importance=T,
-                   proximity=T,
-                   keep.forest = TRUE,
-                   keep.inbag = TRUE)
-PI_permimp500 <- permimp(RF, progressBar = TRUE, asParty = TRUE)
-## barplot
-plot(PI_permimp500, 
-     type = "bar", 
-     interval = "quantile",
-     main = paste(CURRENT_REGION_DISPLAY,"\nConditional Permutation Importance")
-)
-## horizontal boxplot
-plot(PI_permimp500, 
-     type = "box", 
-     horizontal = TRUE,
-     main = paste(CURRENT_REGION_DISPLAY,"\nConditional Permutation Importance")
-)
-
-
-partialdatap <- partial(RF, 
-                       pred.var = c(metric), 
-                       type= "classification",
-                       which.class="P",
-                       chull = TRUE)
-partialdatae <- partial(RF, 
-                        pred.var = c(metric), 
-                        type= "classification",
-                        which.class="E",
-                        chull = TRUE)
-partialdatai <- partial(RF, 
-                        pred.var = c(metric), 
-                        type= "classification",
-                        which.class="I",
-                        chull = TRUE)
-
-ggplot(data=partialdatae, aes(x=DifferencesInVegetation_score, y=yhat))+
-  geom_line(aes(color="E")) + 
-  geom_line(data=partialdatap, aes(x=DifferencesInVegetation_score, 
-                                   y=yhat, 
-                              color="P"))+ 
-  geom_rug(data=partialdatap, aes(color = "P"), 
-           sides = 'b', outside = F, alpha = 1/2, position = "jitter")+
-  geom_rug(data=partialdatai, aes(color = "E"), 
-           sides = 'b', outside=F, alpha = 1/2, position = "jitter")
-
-
-partialplot <- autoplot(partialdata,
-                        contour = TRUE,
-                        # pdp.size = 0.1,
-                        rug=TRUE, train = old_data)
-print(partialplot)
+# # install.packages("permimp")
+# library("permimp")
+# ## compute permutation importance
+# set.seed(1111)
+# RF <- randomForest(Class~.,
+#                    data=old_data,
+#                    ntree=numTrees,
+#                    importance=T,
+#                    proximity=T)
+# 
+# PI_permimp500 <- permimp(RF, progressBar = TRUE, asParty = TRUE)
+# ## barplot
+# plot(PI_permimp500, 
+#      type = "bar", 
+#      interval = "quantile",
+#      main = paste(CURRENT_REGION_DISPLAY,"\nConditional Permutation Importance")
+# )
+# ## horizontal boxplot
+# plot(PI_permimp500, 
+#      type = "box", 
+#      horizontal = TRUE,
+#      main = paste(CURRENT_REGION_DISPLAY,"\nConditional Permutation Importance")
+# )
+# 
+# 
+# partialdatap <- partial(RF, 
+#                        pred.var = c(metric), 
+#                        type= "classification",
+#                        which.class="P",
+#                        chull = TRUE)
+# partialdatae <- partial(RF, 
+#                         pred.var = c(metric), 
+#                         type= "classification",
+#                         which.class="E",
+#                         chull = TRUE)
+# partialdatai <- partial(RF, 
+#                         pred.var = c(metric), 
+#                         type= "classification",
+#                         which.class="I",
+#                         chull = TRUE)
+# 
+# ggplot(data=partialdatae, aes(x=DifferencesInVegetation_score, y=yhat))+
+#   geom_line(aes(color="E")) + 
+#   geom_line(data=partialdatap, aes(x=DifferencesInVegetation_score, 
+#                                    y=yhat, 
+#                               color="P"))+ 
+#   geom_rug(data=partialdatap, aes(color = "P"), 
+#            sides = 'b', outside = F, alpha = 1/2, position = "jitter")+
+#   geom_rug(data=partialdatai, aes(color = "E"), 
+#            sides = 'b', outside=F, alpha = 1/2, position = "jitter")
+# 
+# 
+# partialplot <- autoplot(partialdata,
+#                         contour = TRUE,
+#                         # pdp.size = 0.1,
+#                         rug=TRUE, train = old_data)
+# print(partialplot)
 
 # for (metric in current_metrics) {
 for ( metric in c( 
@@ -720,7 +1065,7 @@ for ( metric in c(
                  "DifferencesInVegetation_score",
                  "RifflePoolSeq_score",
                  "SedimentOnPlantsDebris_score",
-                 "ephISAabund_PA",
+                 # "ephISAabund_PA",
                  "UplandRooted_PA",
                  "hydrophytes_2",
                  "TotalAbund_0_10" )) {
@@ -753,7 +1098,7 @@ for ( metric in c(
          legend="PDP", x="")
   print(partialplot)
   ggsave(partialplot, height=5, width=8, units="in", dpi=900,
-         filename=paste0(out_dir, "/pdps/pdp_",metric,".png"))
+         filename=paste0(sa_dir, "/pdps/pdp_",metric,".png"))
 
   # # TODO: pdp only on TEST data?!
   # # Two Variables
@@ -768,7 +1113,7 @@ for ( metric in c(
   #        legend="")
   # print(partialplot2)
   # ggsave(partialplot2, height=5, width=8, units="in", dpi=900,
-  #        filename=paste0(out_dir, "/pdps/pdp2_",var1,"_and_", metric,".png"))
+  #        filename=paste0(sa_dir, "/pdps/pdp2_",var1,"_and_", metric,".png"))
 
 }
 ################################################################################ 
@@ -790,7 +1135,7 @@ for ( metric in c(
   "DifferencesInVegetation_score",
   "RifflePoolSeq_score",
   "SedimentOnPlantsDebris_score",
-  "ephISAabund_PA",
+  # "ephISAabund_PA",
   "UplandRooted_PA",
   "hydrophytes_2",
   "TotalAbund_0_10"
@@ -835,7 +1180,7 @@ for ( metric in c(
                    ))+ theme(legend.position = "none")
   print(boxplot_predictedlclass)
 
-  ggsave(paste0(out_dir, "/boxplots/box1_", metric,".png"),
+  ggsave(paste0(sa_dir, "/boxplots/box1_", metric,".png"),
          arrangeGrob( 
             arrangeGrob(boxplot_actualclass, boxplot_predictedlclass, ncol=2),
             nrow = 1#
@@ -887,7 +1232,7 @@ for ( metric in c(
 #                        ")\n Number of Samples: ", dim(df_input)[1],
 #                        "\n Number of Sites: ",
 #                        length(unique(df_input$SiteCode))[1]))
-#     ggsave(paste0(out_dir, "/metric_", metric,".png"),
+#     ggsave(paste0(sa_dir, "/metric_", metric,".png"),
 #            arrangeGrob( metric_hist,
 #                         arrangeGrob(metric_box, metric_box_region, ncol=2),
 #                         nrow = 2,
@@ -903,7 +1248,7 @@ for ( metric in c(
 ################################################################################
 make_models <- function (input_dataset, nickname, candidate_list, numTrees) {
   # Set up output dir
-  fpath <- paste0(out_dir, "/perturb_input/",nickname)
+  fpath <- paste0(sa_dir, "/perturb_input/",nickname)
   if (!dir.exists(fpath)){dir.create(fpath)}
   else {print(paste("Creating RF for ", nickname))}
   
@@ -1054,7 +1399,7 @@ for ( metric in c(
 # 3.	which indicator value changes are driving errors in classification
 
 ################################################################################
-df_input_multiple <- df %>% 
+df_input_multiple <- df_input %>% 
       filter(TotalVisits>1) %>% 
       filter(Notes!='Augmented') %>% 
       group_by(SiteCode)%>%
@@ -1066,7 +1411,7 @@ df_input_multiple <- df %>%
          rangeDifferencesInVegetation_score = max(DifferencesInVegetation_score) - min(DifferencesInVegetation_score),
          rangeRifflePoolSeq_score = max(RifflePoolSeq_score) - min(RifflePoolSeq_score),
          rangeSedimentOnPlantsDebris_score = max(SedimentOnPlantsDebris_score) - min(SedimentOnPlantsDebris_score),
-         rangeephISAabund_PA = max(ephISAabund_PA) - min(ephISAabund_PA),
+         # rangeephISAabund_PA = max(ephISAabund_PA) - min(ephISAabund_PA),
          rangeUplandRooted_PA = max(UplandRooted_PA) - min(UplandRooted_PA),
          rangehydrophytes_2 = max(hydrophytes_2) - min(hydrophytes_2),
          rangeTotalAbund_0_10 = max(TotalAbund_0_10) - min(TotalAbund_0_10),
@@ -1138,7 +1483,7 @@ for (metric in current_metrics) {#c("BankWidthMean") c("TotalAbund_0_10")
     # theme(legend.position="bottom")
   print(rangeplot)
   ggsave(rangeplot, height=5, width=8, units="in", dpi=900,
-         filename=paste0(out_dir, "/range2_",metric,".png"))
+         filename=paste0(sa_dir, "/range2_",metric,".png"))
 
 }
 
@@ -1182,6 +1527,6 @@ for (metric in current_metrics) {#c("BankWidthMean") c("TotalAbund_0_10")
     )
   print(rangeplot)
   ggsave(rangeplot, height=5, width=8, units="in", dpi=900,
-         filename=paste0(out_dir, "/range_",metric,".png"))
+         filename=paste0(sa_dir, "/range_",metric,".png"))
   
 }

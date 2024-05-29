@@ -17,8 +17,7 @@ library(stringr)
 library(readxl)
 library(reshape2)
 
-# model_version <- "DraftFinalModels2"
-model_version <- "FinalModelQC_Apr2024"
+model_version <- "Final_GP_Model"
 chosen_model <- "NoGIS_Unstrat"
 refinement_chosen <- "V5_NoGIS_Unstrat"
 
